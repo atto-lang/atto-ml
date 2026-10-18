@@ -9,3 +9,4 @@ if [ ! -f "../oreslang-autograd/src/tape.ores" ]; then
   exit 78
 fi
 "$ORESLANG_BIN" examples/train_with_autograd.ores
+"$ORESLANG_BIN" examples/train_two_layer_autograd.ores
