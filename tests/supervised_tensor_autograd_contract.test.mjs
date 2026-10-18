@@ -142,6 +142,8 @@ test("real-guest verifier pins six dependency source blobs and fails closed",()=
   assert.match(verifier,/cmp -s/);
   assert.match(verifier,/GUEST=FAILED; no pass receipt/);
   assert.match(verifier,/GUEST=OUTPUT_MISMATCH; no pass receipt/);
+  assert.match(verifier,/GUEST=UNEXPECTED_STDERR; no pass receipt/);
+  assert.match(verifier,/\[\[ -s "\$temp\/stderr" \]\]/);
   assert.doesNotMatch(verifier,/\bgit\s+(?:clone|push)\b|\bcurl\b|\bwget\b/);
 });
 
