@@ -1,0 +1,78 @@
+// CPU scalar typed-outcome reference. Unlike integer error sentinels, a
+// successful result can be ANY signed integer within the checked bounds
+// without being mistaken for a failure. String error labels are provisional:
+// migrate to a nominal TrainingError enum after compiler guest conformance.
+// Never use these pure functions to bypass the actor's sole state RW gate.
+fnc bounded(int value): bool {
+    return value >= -10000 && value <= 10000;
+}
+pub fnc checked_scalar_forward(int weight, int input): Result<int, String> {
+    if !bounded(weight) || !bounded(input); do
+        return Err("INVALID_INPUT");
+    fi
+    return Ok(weight * input);
+}
+// running_gradient is caller-owned staged accumulator, not persisted here.
+// Caller may publish only after its version/microbatch receipt is verified.
+pub fnc checked_scalar_gradient(
+    int saved_input, int upstream, int running_gradient, int receipts
+): Result<int, String> {
+    if receipts < 0 || receipts >= 2; do
+        return Err("BAD_RECEIPT_COUNT");
+    fi
+    if !bounded(saved_input) || !bounded(upstream); do
+        return Err("INVALID_GRADIENT");
+    fi
+    if running_gradient < -200000000 || running_gradient > 200000000; do
+        return Err("INVALID_ACCUMULATOR");
+    fi
+    val int candidate = running_gradient + (saved_input * upstream);
+    if candidate < -200000000 || candidate > 200000000; do
+        return Err("ACCUMULATION_BOUNDS");
+    fi
+    return Ok(candidate);
+}
+pub fnc checked_scalar_candidate(
+    int weight, int gradient, int receipts, int version, int step
+): Result<int, String> {
+    if !bounded(weight)
+        || gradient < -200000000 || gradient > 200000000; do
+        return Err("INVALID_STATE");
+    fi
+    if receipts != 2; do
+        return Err("INCOMPLETE_FANIN");
+    fi
+    if version < 1 || step < 1
+        || version >= 1000000 || step >= 1000000; do
+        return Err("COUNTER_EXHAUSTED");
+    fi
+    val int proposed = weight - gradient;
+    if !bounded(proposed); do
+        return Err("UNSAFE_CANDIDATE");
+    fi
+    return Ok(proposed);
+}
+// Called ONLY after a separate exclusive actor write-loan has established
+// full receipt fan-in, matching run/step/version and the rejected candidate.
+// Returns the *next version*; the actor must independently clear all ledgers,
+// advance both step/version and preserve committed weight in one transaction.
+pub fnc checked_scalar_retirement(
+    int weight, int gradient, int receipts, int version, int step
+): Result<int, String> {
+    if receipts != 2; do
+        return Err("INCOMPLETE_FANIN");
+    fi
+    if !bounded(weight)
+        || gradient < -200000000 || gradient > 200000000; do
+        return Err("INVALID_STATE");
+    fi
+    if version < 1 || step < 1
+        || version >= 1000000 || step >= 1000000; do
+        return Err("COUNTER_EXHAUSTED");
+    fi
+    val int proposed = weight - gradient;
+    if bounded(proposed); do
+        return Err("VALID_CANDIDATE_MUST_COMMIT");
+    fi
+    return Ok(version + 1);
+}
