@@ -1,0 +1,89 @@
+// Cross-repository CPU integration: nullable supervised column -> dense batch
+// -> scalar autograd tape -> SGD. Source is a REAL .ores guest acceptance target,
+// not a claim of compiled Java/LLVM execution. Requires sibling checkouts:
+// workspace/oreslang-ml, oreslang-data-science, oreslang-autograd.
+//
+// The isolated scalar tape is already a pure Oreslang reverse-mode reference.
+// Actor-owned versioned parameter publication is exercised separately by
+// train_actor_state_scalar.ores; do NOT infer actor-state or Tensor<T> support.
+import class FloatColumn from '../../oreslang-data-science/src/data/columnar';
+import class DenseSupervisedBatchF64 from '../../oreslang-data-science/src/pipeline/ml_batch_bridge';
+import fnc compact_supervised_f64_into from '../../oreslang-data-science/src/pipeline/ml_batch_bridge';
+import class TapeF64 from '../../oreslang-autograd/src/tape';
+import fnc forward_checked_into from '../../oreslang-autograd/src/forward_checked';
+import fnc backward_checked_into from '../../oreslang-autograd/src/backward_checked';
+
+pub routine main(): void {
+  val FloatColumn features = new FloatColumn(
+    "x", arr[0.0, 999.0, 1.0, 2.0, 3.0],
+    arr[true, false, true, true, true]
+  );
+  val FloatColumn targets = new FloatColumn(
+    "y", arr[1.0, 999.0, 3.0, 5.0, 7.0],
+    arr[true, false, true, true, true]
+  );
+  val List<float> inputs = arr[0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> labels = arr[0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<int> source_rows = arr[0, 0, 0, 0, 0];
+  val Result<DenseSupervisedBatchF64, String> prepared =
+    compact_supervised_f64_into(features, targets, inputs, labels, source_rows);
+  if prepared.is_err(); do
+    stdio.println("ORES_DATA_AUTOGRAD_FAIL prepare");
+    return;
+  fi
+  val DenseSupervisedBatchF64 batch = prepared.unwrap();
+  if batch.count != 4 || source_rows[0] != 0 || source_rows[1] != 2
+      || source_rows[2] != 3 || source_rows[3] != 4; do
+    stdio.println("ORES_DATA_AUTOGRAD_FAIL rows");
+    return;
+  fi
+
+  val List<float> weight = arr[0.0];
+  val List<float> bias = arr[0.0];
+  val float rate = 0.05;
+  let float last_loss = 0.0;
+  for int epoch = 0; epoch < 500; epoch++ do
+    let float grad_weight = 0.0;
+    let float grad_bias = 0.0;
+    let float batch_loss = 0.0;
+    for int i = 0; i < batch.count; i++ do
+      // 0=w, 1=x, 2=b, 3=-target, 4=w*x,
+      // 5=w*x+b, 6=prediction-target, 7=squared error.
+      val TapeF64 tape = new TapeF64(
+        arr[0, 0, 0, 0, 2, 1, 1, 2],
+        arr[-1, -1, -1, -1, 0, 4, 5, 6],
+        arr[-1, -1, -1, -1, 1, 2, 3, 6],
+        arr[weight[0], inputs[i], bias[0], 0.0-labels[i],
+            0.0, 0.0, 0.0, 0.0]
+      );
+      val List<float> activations = arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      val List<float> gradients = arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      val List<float> fwd_scratch = arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      if forward_checked_into(tape, fwd_scratch, activations).is_err(); do
+        stdio.println("ORES_DATA_AUTOGRAD_FAIL forward");
+        return;
+      fi
+      val List<float> bwd_scratch = arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      if backward_checked_into(
+            tape, activations, 7, 1.0, bwd_scratch, gradients
+         ).is_err(); do
+        stdio.println("ORES_DATA_AUTOGRAD_FAIL backward");
+        return;
+      fi
+      grad_weight = grad_weight + gradients[0];
+      grad_bias = grad_bias + gradients[2];
+      batch_loss = batch_loss + activations[7];
+    done
+    last_loss = batch_loss / batch.count;
+    weight[0] = weight[0] - ((rate / batch.count) * grad_weight);
+    bias[0] = bias[0] - ((rate / batch.count) * grad_bias);
+  done
+
+  if last_loss >= 0.000001 || weight[0] < 1.99 || weight[0] > 2.01
+      || bias[0] < 0.99 || bias[0] > 1.01; do
+    stdio.println("ORES_DATA_AUTOGRAD_FAIL convergence");
+    return;
+  fi
+  stdio.println("ORES_DATA_AUTOGRAD_TRAINING_PASS");
+  return;
+}
