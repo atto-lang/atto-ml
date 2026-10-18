@@ -185,7 +185,7 @@ define actor VersionedScalarStage as
             return;
         fi
         if mail.value == "after"; do
-            stdio.println(self.eval_affine(2));
+            stdio.println(self.weight_snapshot() * 2);
             self.end();
             return;
         fi
