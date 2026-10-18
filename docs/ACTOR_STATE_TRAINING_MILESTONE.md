@@ -186,3 +186,22 @@ The Java source PR #1347 tracks the same guest blob and golden; no compiled Java
 A separate concurrent ML branch update added `graph_id = 202` and `STALE_GRAPH` to **all four** run/incarnation/version-fenced scalar operations, including a new deliberately wrong-graph forward. It inserted one additional rejection into the expected stdout (now **27 lines**), and the host-side scalar transaction test added graph-aware behavior. The previous lifecycle hardening was preserved. The latest ML guest fixture Git blob is `4597a2860fb5aaf0be5cf1dda5c16eaa93c5d8b2`; golden blob is `b602f9821817696f16499af1a74cb22d49a0ecab`. Java PR #1347's fixture, golden, JUnit assertions and both protected runner workflow hashes were reconciled to these exact blobs.
 
 Graph/run/incarnation values remain *guessable demo IDs*, never authorization. The native parser/JUnit/guest gates have not executed, and the separate source-free funded carrier's 87/87 passing tests do not establish graph-fenced native runtime correctness.
+
+
+## Follow-up: nominal actor errors and graph-epoch admission (2026-10-18)
+
+On the ML actor draft head, all four stateful actor entrypoints now carry a
+`Result<int, TrainingError>` contract. The closed, nullary, explicitly tagged
+`TrainingError` declaration replaces arbitrary error strings; the presentation
+path matches both `Ok/Err` and every declared error case without a wildcard.
+The sole actor state additionally pins demo graph ID 202; every forward, backward,
+commit and rejected-step retirement validates (run, graph, incarnation, version,
+step), then microbatch and receipt invariants before a write. The new wrong-graph
+message is rejected without mutation. The golden now contains 27 lines.
+
+These are authored source-level contracts and host-only checks, **not** verified
+compiler exhaustiveness or runtime authority. The enum and nested exhaustive
+match require actual Java/Graal and LLVM admission plus negative-case diagnostics.
+A string mailbox with guessable integer identity fields is **not authenticated**.
+Neither source-org CI eligibility nor cross-org private-source mirror authorization
+is currently established; security incidents #22/#77 remain open. Keep draft.

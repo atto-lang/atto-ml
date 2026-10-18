@@ -70,8 +70,8 @@ class Stage {
 }
 test("all three stateful operations and compensator return disjoint typed outcomes",()=>{
   for(const op of ["eval_affine","accumulate","commit","cancel_rejected"])
-    assert.match(source,new RegExp("private "+op+"\\([^)]*\\): Result<int, String>"));
-  assert.match(source,/if outcome\.is_err\(\); do/);
+    assert.match(source,new RegExp("private "+op+"\\([^)]*\\): Result<int, TrainingError>"));
+  assert.match(source,/match outcome over/);
   assert.doesNotMatch(source.slice(source.indexOf("private eval_affine("),
     source.indexOf("// A controlled recovery path")),/return -\d+;/);
 });
@@ -209,11 +209,11 @@ test("graph mismatch cannot reserve, stage, commit or compensate, even with matc
 test("graph and incarnation must both be present on every stateful call",()=>{
   assert.match(source,/graph_id: int = 202;/);
   for(const op of ["eval_affine","accumulate","commit","cancel_rejected"]){
-    const signature=source.match(new RegExp("private "+op+"\\([^\\n]*?\\): Result<int, String>"));
+    const signature=source.match(new RegExp("private "+op+"\\([^\\n]*?\\): Result<int, TrainingError>"));
     assert(signature,op+" missing typed signature");
     assert.match(signature[0],/int expected_graph/);
     const method=source.slice(source.indexOf("private "+op+"("));
-    assert(method.indexOf('Err("STALE_GRAPH")')>=0,op+" missing graph guard");
+    assert(method.indexOf('Err(TrainingError.STALE_GRAPH())')>=0,op+" missing graph guard");
   }
   assert.match(source,/worker\.send\("wrong_graph"\)/);
 });

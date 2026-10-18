@@ -17,17 +17,17 @@ test("single state schema; no actor field storage or self.state bypass", () => {
 });
 
 test("with effect bounds are independent from lexical using authority", () => {
-  assert.match(source,/eval_affine\([^)]*\): Result<int, String>\s+with state\.read, state\.write/);
+  assert.match(source,/eval_affine\([^)]*\): Result<int, TrainingError>\s+with state\.read, state\.write/);
   assert.match(source,/using state\.read\(\|s\| -> s\.weight\)/);
-  assert.match(source,/accumulate\([^)]*\): Result<int, String>\s+with state\.read, state\.write/);
+  assert.match(source,/accumulate\([^)]*\): Result<int, TrainingError>\s+with state\.read, state\.write/);
   assert.match(source,/using state\.write\(critical \|s\| -> \{/);
-  assert.match(source,/commit\([^)]*\): Result<int, String> with state\.read, state\.write/);
+  assert.match(source,/commit\([^)]*\): Result<int, TrainingError> with state\.read, state\.write/);
   assert.match(source,/self\.handle_state\(critical write \|s\| -> \{/);
   assert.match(source,/version\(\): int with state\.read/);
   assert.match(source,/s\.step != expected_step/);
   assert.match(source,/s\.seen_first = true/);
   assert.match(source,/s\.seen_second = true/);
-  assert.match(source,/return Err\("DUPLICATE_GRADIENT"\);/); // duplicate microbatch
+  assert.match(source,/return Err\(TrainingError.DUPLICATE_GRADIENT\(\)\);/); // duplicate microbatch
   assert.match(source,/microbatch != 1 && microbatch != 2/);
   assert.match(source,/self\.handle_state\(critical read \|s\| -> s\.version\)/);
   assert.doesNotMatch(source,/\bfnc\s+\w+\([^)]*\)\s+using\s+state/);
@@ -132,8 +132,8 @@ test("backprop consumes only recorded forward contexts and clears them on commit
   assert.match(source,/s\.issued_second = false/);
   assert.match(source,/s\.input_first = 0/);
   assert.match(source,/s\.input_second = 0/);
-  assert.match(source,/return Err\("ORPHAN_GRADIENT"\);/); // orphan backward
-  assert.match(source,/return Err\("DUPLICATE_FORWARD"\);/); // duplicate forward
+  assert.match(source,/return Err\(TrainingError.ORPHAN_GRADIENT\(\)\);/); // orphan backward
+  assert.match(source,/return Err\(TrainingError.DUPLICATE_FORWARD\(\)\);/); // duplicate forward
   assert.doesNotMatch(source,/private accumulate\([^)]*\bint x\b/);
 });
 
@@ -186,11 +186,11 @@ test("typed cancellation handles only a fully received rejected candidate",()=>{
   const start=source.indexOf("private cancel_rejected(");
   const stop=source.indexOf("private weight_snapshot(",start);
   const body=source.slice(start,stop);
-  assert.match(body,/Result<int, String>/);
-  assert.match(body,/return Err\("STALE_STEP"\)/);
-  assert.match(body,/return Err\("INCOMPLETE_FANIN"\)/);
-  assert.match(body,/return Err\("COUNTER_EXHAUSTED"\)/);
-  assert.match(body,/return Err\("VALID_CANDIDATE_MUST_COMMIT"\)/);
+  assert.match(body,/Result<int, TrainingError>/);
+  assert.match(body,/return Err\(TrainingError.STALE_STEP\(\)\)/);
+  assert.match(body,/return Err\(TrainingError.INCOMPLETE_FANIN\(\)\)/);
+  assert.match(body,/return Err\(TrainingError.COUNTER_EXHAUSTED\(\)\)/);
+  assert.match(body,/return Err\(TrainingError.VALID_CANDIDATE_MUST_COMMIT\(\)\)/);
   assert.match(body,/return Ok\(s\.version\)/);
   const firstWrite=body.indexOf("s.accumulated_gradient = 0;");
   const guard=body.indexOf("if candidate >= -10000 && candidate <= 10000;");
@@ -219,16 +219,17 @@ test("all actor training operations report Result errors without numeric sentine
   const stop=source.indexOf("// A controlled recovery path",start);
   const segment=source.slice(start,stop);
   for(const method of ["eval_affine","accumulate","commit"])
-    assert.match(segment,new RegExp("private "+method+"\\([^)]*\\): Result<int, String>"));
+    assert.match(segment,new RegExp("private "+method+"\\([^)]*\\): Result<int, TrainingError>"));
   assert.doesNotMatch(segment,/return -[0-9]+;/);
-  assert.match(segment,/return Err\("DUPLICATE_GRADIENT"\)/);
-  assert.match(segment,/return Err\("STALE_VERSION"\)/);
+  assert.match(segment,/return Err\(TrainingError.DUPLICATE_GRADIENT\(\)\)/);
+  assert.match(segment,/return Err\(TrainingError.STALE_VERSION\(\)\)/);
   assert.match(segment,/return Ok\(s\.weight \* x\)/);
   assert.match(segment,/return Ok\(s\.accumulated_gradient\)/);
   assert.match(segment,/return Ok\(s\.weight\)/);
-  assert.match(source,/private print_outcome\(Result<int, String> outcome\): void/);
-  assert.match(source,/if outcome\.is_err\(\); do/);
-  assert.match(source,/stdio\.println\(outcome\.unwrap\(\)\)/);
+  assert.match(source,/private print_outcome\(Result<int, TrainingError> outcome\): void/);
+  assert.match(source,/match outcome over/);
+  assert.match(source,/match problem over/);
+  assert.match(source,/stdio\.println\(value\)/);
 });
 test("a legitimate negative forward result cannot be confused with rejection",()=>{
   const output=readFileSync(new URL("./golden/actor_state_scalar.stdout",import.meta.url),"utf8")
@@ -244,24 +245,28 @@ test("run and incarnation guards precede all scalar mutation and reject wrong ep
   assert.match(source,/run_id: int = 101/);
   assert.match(source,/incarnation: int = 1/);
   assert.match(source,/graph_id: int = 202/);
+  assert.match(source,/graph_id: int = 202/);
   for(const method of ["eval_affine","accumulate","commit","cancel_rejected"]){
     const start=source.indexOf("private "+method+"(");
     const end=source.indexOf("\n    private ",start+8);
     const body=source.slice(start,end<0?source.length:end);
-    assert.match(body,/int expected_run, int expected_incarnation/);
+    assert.match(body,/int expected_run, int expected_incarnation, int expected_graph/);
     const run=body.indexOf("s.run_id != expected_run");
+    const graph=body.indexOf("s.graph_id != expected_graph");
     const graph=body.indexOf("s.graph_id != expected_graph");
     const inc=body.indexOf("s.incarnation != expected_incarnation");
     const version=body.indexOf("s.version != expected_version");
     const mutation=body.search(/s\.(?:issued_first|issued_second|seen_first|seen_second|weight|accumulated_gradient|step|version) =/);
     assert(run>0&&graph>run&&inc>graph&&version>inc,method+" identity fences before version");
     assert(mutation<0||mutation>version,method+" mutates only after fences");
-    assert.match(body,/return Err\("STALE_RUN"\)/);
-    assert.match(body,/return Err\("STALE_GRAPH"\)/);
-    assert.match(body,/return Err\("STALE_INCAR"\)/);
+    assert.match(body,/return Err\(TrainingError.STALE_RUN\(\)\)/);
+    assert.match(body,/return Err\(TrainingError.STALE_GRAPH\(\)\)/);
+    assert.match(body,/return Err\(TrainingError.STALE_GRAPH\(\)\)/);
+    assert.match(body,/return Err\(TrainingError.STALE_INCAR\(\)\)/);
   }
   assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 100, 1, 202\)/);
   assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 0, 202\)/);
+  assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 1, 201\)/);
   assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 1, 201\)/);
 });
 test("cancellation is not directly addressable as a string mail command",()=>{
@@ -277,9 +282,9 @@ test("cancellation is not directly addressable as a string mail command",()=>{
   assert.match(handler,/!final_result\.is_err\(\) && self\.demo_finish_ready\(\)/);
   const decision=handler.slice(handler.indexOf('mail.value == "high_grad2"'),handler.indexOf('mail.value == "stale_after_cancel"'));
   assert.match(decision,/if !final_gradient\.is_err\(\)/);
-  assert.match(decision,/self\.commit\(2, 2, 101, 1\)/);
+  assert.match(decision,/self\.commit\(2, 2, 101, 1, 202\)/);
   assert.match(decision,/outcome\.is_err\(\)/);
-  assert.match(decision,/self\.cancel_rejected\(2, 2, 101, 1\)/);
+  assert.match(decision,/self\.cancel_rejected\(2, 2, 101, 1, 202\)/);
   // This is an internal recovery decision, NOT caller authentication of other commands.
 });
 
