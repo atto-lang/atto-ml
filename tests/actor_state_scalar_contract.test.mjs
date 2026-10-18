@@ -103,7 +103,7 @@ test("every accumulate invocation has five arguments and versioned stale rejecti
   assert.match(source,/s\.version != expected_version/);
 });
 test("actor state effects and private helpers cannot be bypassed by handlers",()=>{
-  const helpers=["forward","accumulate","commit","version"];
+  const helpers=["eval_affine","accumulate","commit","version"];
   for(const name of helpers) {
     assert(source.includes("private "+name+"("));
     assert(!source.includes("pub "+name+"("));
