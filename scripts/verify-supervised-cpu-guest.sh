@@ -95,11 +95,29 @@ if [[ "$actual_fixture_blob" != "0373080c2500df49e476c777c5598463ca126aac" ]]; t
   echo "NOT_EXECUTED: supervised CPU guest fixture Git blob changed" >&2
   exit 78
 fi
+# A guest that deadlocks or fails to terminate must not monopolize CI
+# indefinitely. Require a bounded elapsed wall clock even on manual runners.
+if command -v timeout >/dev/null 2>&1; then
+  guest_timeout="$(command -v timeout)"
+elif command -v gtimeout >/dev/null 2>&1; then
+  guest_timeout="$(command -v gtimeout)"
+else
+  echo "NOT_EXECUTED: a GNU-compatible timeout command is required" >&2
+  exit 78
+fi
+if [[ ! "${ORESLANG_GUEST_TIMEOUT_SECONDS:-120}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "NOT_EXECUTED: invalid positive guest timeout seconds" >&2
+  exit 78
+fi
+if (( ${ORESLANG_GUEST_TIMEOUT_SECONDS:-120} > 600 )); then
+  echo "NOT_EXECUTED: guest timeout exceeds 600-second ceiling" >&2
+  exit 78
+fi
 temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT
 printf '%s\n' "ORES_ML_SUPERVISED_TENSOR_AUTOGRAD_PASS" > "$temp/expected"
 printf 'INVOKING_REAL_ORESLANG_GUEST %s\n' "$source" >&2
-if ! "$ORESLANG_BIN" "$source" > "$temp/actual" 2> "$temp/stderr"; then
+if ! "$guest_timeout" -k 5s "${ORESLANG_GUEST_TIMEOUT_SECONDS:-120}s" "$ORESLANG_BIN" "$source" > "$temp/actual" 2> "$temp/stderr"; then
   cat "$temp/stderr" >&2
   echo "ORESLANG_GUEST=FAILED; no pass receipt" >&2
   exit 1
