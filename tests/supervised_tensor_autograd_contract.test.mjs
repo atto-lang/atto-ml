@@ -144,3 +144,21 @@ test("real-guest verifier pins six dependency source blobs and fails closed",()=
   assert.match(verifier,/GUEST=OUTPUT_MISMATCH; no pass receipt/);
   assert.doesNotMatch(verifier,/\bgit\s+(?:clone|push)\b|\bcurl\b|\bwget\b/);
 });
+
+test("actual guest source checks first backward gradients and row provenance",()=>{
+  for(const [expr,value] of [
+    ["per_sample_dw[0]","0.0"],["per_sample_dw[1]","-6.0"],
+    ["per_sample_dw[2]","-20.0"],["per_sample_dw[3]","-42.0"],
+    ["source_dw[4]","0.0"],["grad_weight","-68.0"],
+    ["grad_bias","-32.0"],["batch_loss","84.0"]
+  ]){
+    assert(source.includes("Assert.equal_throws("+expr+", "+value+")"),
+      "missing numerical assertion for "+expr);
+  }
+});
+test("real-guest verifier pins the exact current CPU fixture Git blob",()=>{
+  const verifier=readFileSync(new URL("../scripts/verify-supervised-cpu-guest.sh",import.meta.url),"utf8");
+  assert.match(verifier,/0373080c2500df49e476c777c5598463ca126aac/);
+  assert.match(verifier,/supervised CPU guest fixture Git blob changed/);
+  assert.match(verifier,/FIXTURE_BLOB=1/);
+});
