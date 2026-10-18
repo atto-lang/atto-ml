@@ -124,3 +124,15 @@ test("no parameter mutation occurs during gradient collection in source",()=>{
   assert.match(source,/val float next_weight =/);
   assert.match(source,/val float next_bias =/);
 });
+
+
+test("real-guest verifier pins six dependency source blobs and fails closed",()=>{
+  const verifier=readFileSync(new URL("../scripts/verify-supervised-cpu-guest.sh",import.meta.url),"utf8");
+  assert.equal((verifier.match(/^require_blob oreslang-/gm)||[]).length,6);
+  assert.match(verifier,/git -C "\$base" hash-object/);
+  assert.match(verifier,/ORESLANG_BIN/);
+  assert.match(verifier,/cmp -s/);
+  assert.match(verifier,/GUEST=FAILED; no pass receipt/);
+  assert.match(verifier,/GUEST=OUTPUT_MISMATCH; no pass receipt/);
+  assert.doesNotMatch(verifier,/\bgit\s+(?:clone|push)\b|\bcurl\b|\bwget\b/);
+});
