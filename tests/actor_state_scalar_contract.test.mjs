@@ -41,7 +41,10 @@ test("write callback checks weight version and gradient count before publishing"
   const stepGuard=commit.indexOf("s.step != expected_step");
   const bothIds=commit.indexOf("!s.issued_first || !s.issued_second || !s.seen_first || !s.seen_second");
   assert(stepGuard > guard && bothIds > full);
-  const update=commit.indexOf("s.weight = s.weight - s.accumulated_gradient");
+  const update=commit.indexOf("s.weight = candidate_weight");
+  const prepare=commit.indexOf("val int candidate_weight = s.weight - s.accumulated_gradient");
+  const check=commit.indexOf("if candidate_weight < -10000 || candidate_weight > 10000");
+  assert(prepare > full && check > prepare && update > check);
   const bump=commit.indexOf("s.version = s.version + 1");
   assert(guard >= 0 && full > guard && update > full && bump > update);
   assert.doesNotMatch(commit,/\bawait\b|\bselect\b|rt cooperate/);
@@ -80,21 +83,21 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
 test("expected guest-output golden includes orphan and duplicate-forward rejection", () => {
   const golden = readFileSync(new URL("./golden/actor_state_scalar.stdout", import.meta.url),"utf8");
   assert.deepEqual(golden.trim().split(/\r?\n/).map(Number),
-    [-6,20,-7,30,2,-4,-2,5,5,2,-1,10]);
+    [-6,-8,20,-7,30,-8,2,-4,-2,5,5,2,-1,50000,50000,100000000,200000000,-8,2,10]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["orphan","forward1","forward_duplicate","forward2","grad1","duplicate","early","grad2","commit","stale","after"]);
+    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","after"]);
 });
 
 
-test("every accumulate invocation has five arguments and versioned stale rejection",()=>{
+test("every accumulate invocation has four arguments and matching step/version",()=>{
   const calls=[...source.matchAll(/self\.accumulate\(([^)]*)\)/g)];
-  assert.equal(calls.length,5);
+  assert.equal(calls.length,8);
   for(const call of calls) {
     const args=call[1].split(",").map(x=>x.trim());
     assert.equal(args.length,4);
-    assert.equal(args[0],"1");
-    assert.equal(args[1],"1");
+    assert(["1","2"].includes(args[0]));
+    assert.equal(args[0],args[1]);
     assert([1,2].includes(Number(args[2])));
   }
   const stale=source.match(/if mail\.value == "stale"; do\s*stdio\.println\(self\.accumulate\(([^)]*)\)\)/);
