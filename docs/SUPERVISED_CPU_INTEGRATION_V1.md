@@ -110,3 +110,12 @@ The real-guest gate requires SHA-256 of the compiler entrypoint, three exact cle
 Independent source-free [GitHub Actions run #39158575443](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39158575443) passed **47/47** Node tests on exact funded test revision `c03d7a1db62feb8d843d2ad1ee61429cd68f3b3e`. It tested mathematics and protocol models only; no private Oreslang source was transferred or executed. In the Java compiler [PR #1347](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1347), the scalar actor guest acceptance suite now explicitly invokes `OwnershipChecker.check`.
 
 Real source-org Java/ML Actions still failed without recorded runner steps. Consequently compiled Java/LLVM execution, Oreslang guest stderr/stdout, and source-owned subprocess-denial tests remain unverified. Keep both PRs draft.
+
+
+## Integer-mail boundary hardening
+
+The experimental fixed-example actor bootstrap now bounds each numeric mailbox payload **before** multiplication, state writes, or backward propagation. The two forward stages accept only signed integer magnitudes at most 1000; the loss actor bounds predictions at 1000; backward stages bound upstream gradient magnitudes at 4096. This is a deliberately narrow integer demonstration, not a generic NN training range or an integer-overflow-proof compiler primitive. Under the fixture's initial weights (2 and 3) and single accepted step, admitted arithmetic fits signed 32-bit ranges. New actor source/calculus checks verify the five admission guards, fixed gradients, and replay fencing.
+
+**Remaining unsolved protocol hazard:** the actor pipe's local per-stage optimizer publication is not globally atomic or durable. A failed send or process crash between local commits may strand stages at different versions. Numeric admission does not authenticate a gradient's originating run, graph, microbatch, actor incarnation, or weight version; typed provenance envelopes and coordinated recovery are merge blockers.
+
+[Funded source-free Actions run #39160931019](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39160931019) passed **55/55** independently authored numerical and message-model checks at exact carrier head `d391c1b5768438ee71080f8ba3cac6ac6282410c`. This run included eight new bounded-integer/replay tests. It explicitly did **not** use private Oreslang source or execute the Oreslang runtime. Oreslang compiler and actor-lane execution are still unverified.
