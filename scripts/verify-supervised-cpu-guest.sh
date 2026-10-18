@@ -122,6 +122,14 @@ if ! "$guest_timeout" -k 5s "${ORESLANG_GUEST_TIMEOUT_SECONDS:-120}s" "$ORESLANG
   echo "ORESLANG_GUEST=FAILED; no pass receipt" >&2
   exit 1
 fi
+# A guest can print the expected pass marker while also reporting errors
+# to stderr. For this deterministic acceptance fixture, any diagnostic output
+# is a failure and must not be promoted to a green compiler receipt.
+if [[ -s "$temp/stderr" ]]; then
+  cat "$temp/stderr" >&2
+  echo "ORESLANG_GUEST=UNEXPECTED_STDERR; no pass receipt" >&2
+  exit 1
+fi
 if ! cmp -s "$temp/expected" "$temp/actual"; then
   diff -u "$temp/expected" "$temp/actual" >&2 || true
   cat "$temp/stderr" >&2
