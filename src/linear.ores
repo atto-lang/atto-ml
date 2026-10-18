@@ -1,6 +1,10 @@
 // Pure Oreslang eager CPU reference. The P0 model is a one-feature/one-output
 // affine layer y = w*x+b. It is intentionally small enough to prove an
 // end-to-end numerical training path before general tensor/autograd wiring.
+fnc finite_f64(float x): bool {
+  return (x - x) == 0.0;
+}
+
 fnc count_floats(List<float> values): int {
   let int n = 0;
   for const value of values do
@@ -19,6 +23,17 @@ pub fnc affine_batch_into(
   if count_floats(outputs) != n; do
     return Err("affine output length mismatch");
   fi
+  if !finite_f64(weight) || !finite_f64(bias); do
+    return Err("nonfinite affine parameter");
+  fi
+  for int i = 0; i < n; i++ do
+    if !finite_f64(inputs[i]); do
+      return Err("nonfinite affine input");
+    fi
+    if !finite_f64((inputs[i] * weight) + bias); do
+      return Err("nonfinite affine output");
+    fi
+  done
   for int i = 0; i < n; i++ do
     outputs[i] = (inputs[i] * weight) + bias;
   done
@@ -38,8 +53,14 @@ pub fnc mse_loss(
   fi
   let float total = 0.0;
   for int i = 0; i < n; i++ do
+    if !finite_f64(predictions[i]) || !finite_f64(targets[i]); do
+      return Err("nonfinite mse input");
+    fi
     val float difference = predictions[i] - targets[i];
     total = total + (difference * difference);
+    if !finite_f64(total); do
+      return Err("nonfinite mse result");
+    fi
   done
   return Ok(total / n);
 }
@@ -72,6 +93,14 @@ pub fnc train_affine_step(
 
   val float weight = weights[0];
   val float bias = biases[0];
+  if !finite_f64(weight) || !finite_f64(bias); do
+    return Err("nonfinite training parameter");
+  fi
+  for int i = 0; i < n; i++ do
+    if !finite_f64(inputs[i]) || !finite_f64(targets[i]); do
+      return Err("nonfinite training value");
+    fi
+  done
   let float loss = 0.0;
   let float gradient_w = 0.0;
   let float gradient_b = 0.0;
@@ -82,8 +111,13 @@ pub fnc train_affine_step(
     gradient_b = gradient_b + error;
   done
   val float scale = 2.0 / n;
-  weights[0] = weight - (learning_rate * scale * gradient_w);
-  biases[0] = bias - (learning_rate * scale * gradient_b);
+  val float next_weight = weight - (learning_rate * scale * gradient_w);
+  val float next_bias = bias - (learning_rate * scale * gradient_b);
+  if !finite_f64(loss) || !finite_f64(next_weight) || !finite_f64(next_bias); do
+    return Err("nonfinite affine training result");
+  fi
+  weights[0] = next_weight;
+  biases[0] = next_bias;
   return Ok(loss / n);
 }
 
@@ -103,6 +137,14 @@ pub fnc sgd_step_into(
   if (learning_rate - learning_rate) != 0.0; do
     return Err("sgd learning rate must be finite");
   fi
+  for int i = 0; i < n; i++ do
+    if !finite_f64(parameters[i]) || !finite_f64(gradients[i]); do
+      return Err("nonfinite sgd input");
+    fi
+    if !finite_f64(parameters[i] - (learning_rate * gradients[i])); do
+      return Err("nonfinite sgd result");
+    fi
+  done
   for int i = 0; i < n; i++ do
     parameters[i] = parameters[i] - (learning_rate * gradients[i]);
   done
