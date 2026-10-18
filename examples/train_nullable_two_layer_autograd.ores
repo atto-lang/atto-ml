@@ -38,9 +38,16 @@ pub routine main(): void {
     stdio.println("ORES_TWO_LAYER_FAIL provenance");
     return;
   fi
-  // Re-gather the same original row IDs into an actual rank-2 TensorF64.
-  // This asserts that the data column batch and tensor batch agree on order.
-  val TensorF64 original = new TensorF64(arr[5,1],feature.values);
+  // Materialize a finite row-aligned source tensor from only the jointly
+  // selected feature/target pairs. Raw invalid/null column slots may carry
+  // NaN or Infinity placeholders; TensorF64 rejects those values even though
+  // the corresponding records are excluded from ML minibatches.
+  // Zero-fill excluded rows, preserving the ORIGINAL row IDs for gather/VJP.
+  val List<float> projected_values = arr[0.0,0.0,0.0,0.0,0.0];
+  for int j=0; j<batch.count; j++ do
+    projected_values[row_ids[j]] = x[j];
+  done
+  val TensorF64 original = new TensorF64(arr[5,1],projected_values);
   val List<int> selected = arr[row_ids[0],row_ids[1],row_ids[2],row_ids[3]];
   val List<float> gathered = arr[0.0,0.0,0.0,0.0];
   if gather_rows_2d_f64_into(original,selected,gathered).is_err(); do
