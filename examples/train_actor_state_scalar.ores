@@ -24,7 +24,7 @@ define actor VersionedScalarStage as
 
     // Reads a copied scalar snapshot under a shared read permit; multiplication
     // occurs OUTSIDE the state loan.
-    pub forward(int x): int with state.read {
+    private forward(int x): int with state.read {
         const weight = using state.read(|s| -> s.weight);
         return weight * x;
     }
@@ -32,7 +32,7 @@ define actor VersionedScalarStage as
     // VJP of y=w*x: dL/dw += x * upstream_gradient.
     // The producer's expected version must match the currently committed one.
     // No await, select, I/O, GPU operation, or actor send in the callback.
-    pub accumulate(int expected_step, int expected_version, int microbatch, int x, int upstream): int
+    private accumulate(int expected_step, int expected_version, int microbatch, int x, int upstream): int
         with state.read, state.write
     {
         const contribution = x * upstream;
@@ -68,7 +68,7 @@ define actor VersionedScalarStage as
     // two uniquely identified backward contributions, update weight and version together.
     // Real tensor-backed ML must prepare independent frozen parameter buffers
     // before entering this critical write scope.
-    pub commit(int expected_step, int expected_version): int with state.read, state.write {
+    private commit(int expected_step, int expected_version): int with state.read, state.write {
         return self.handle_state(critical write |s| -> {
             if s.version != expected_version; do
                 return -1;
@@ -90,7 +90,7 @@ define actor VersionedScalarStage as
         });
     }
 
-    pub version(): int with state.read {
+    private version(): int with state.read {
         return self.handle_state(critical read |s| -> s.version);
     }
 
