@@ -35,7 +35,7 @@ pin_file() {
   printf 'SOURCE_BLOB_PASS %s %s\n' "$expected" "$file"
 }
 pin_file "$parent/oreslang-data-science/src/pipeline/ml_batch_bridge.ores" 2d1d5a8173e29f1c2aa432a558f2ba8a912a0f5c
-pin_file "$parent/oreslang-data-science/src/data/columnar.ores" TODO_COLUMNAR_SHA
+pin_file "$parent/oreslang-data-science/src/data/columnar.ores" 8529c60df75d1e9f9d2af98179fd5d02947f712c
 pin_file "$parent/oreslang-tensor/src/tensor.ores" 3bf09bf6b98964d15ca145a6c97b74f307bc47b4
 pin_file "$parent/oreslang-tensor/src/row_batches.ores" 36a2f5cc4fca565c8927160cfac7af9561004190
 pin_file "$parent/oreslang-autograd/src/tape.ores" caf8f2a616eb75a0365efa9fb88b4d01cd12b73f
