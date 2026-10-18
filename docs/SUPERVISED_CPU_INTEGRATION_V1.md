@@ -78,3 +78,12 @@ Do not equate an isolated JavaScript host simulation with native LLVM/JVM actor 
 - A separate **source-free** alternative-org workflow, `sagitta-stack/sagitta-infra` PR #31, [run #39155558378](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155558378), completed 39/39 Node host-only tests at pinned SHA `703f685b28ac1132af59e460a28fb1ad063b1f2f`. The tests include the independently authored interleaving model that demonstrates why split reads are unsafe. Log markers explicitly say Oreslang guest execution and private-tree mirroring did NOT occur.
 
 **Still open:** source-org worker allocation, compiled Java and LLVM tests, numeric guest stdout, compiler-owned immutable tensor leases, actual multi-thread RW gate integration, per-message run/graph/step/actor epoch identity, and distributed commit/recovery.
+
+
+## Forward-replay and runner-negative gates
+
+The experimental `InputWeight` and `HiddenWeight` actors now reject repeated forward messages in their respective short exclusive state callbacks, before overwriting a saved activation or emitting a duplicate downstream forward. `SquaredLoss` likewise rejects a duplicate prediction before emitting an additional backward gradient. The proposed tuple-shaped `(admitted, value)` loan result and single coherent `(input, weight, version, issued, applied)` read snapshot require **actual parser/typing/borrow checker execution**; source-pattern checks alone do not establish that the compiler supports this form.
+
+The CPU guest verifier now has `tests/supervised_cpu_guest_guard.test.mjs`, a Node host subprocess test using a fake local executable. It must reject nonexistent, relative, nonexecutable, unpinned, malformed-hash and hash-mismatched compiler paths **before** the fake executable can run. The test has been added to the source-owned host-only workflow; until a real job allocates a runner, this **subprocess test is not verified executed**.
+
+Current independent source/host model checks cover 12 CPU and 12 actor cases via an isolated V8 harness, but do not establish guest runtime safety or actual multi-threaded reader/writer scheduling. The separate source-free alternate-org runner's latest audited [Actions #39155558378](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155558378) provides real Node 22 evidence for 39 synthetic cases, explicitly not Oreslang source.
