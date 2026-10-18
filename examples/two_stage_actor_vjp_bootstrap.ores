@@ -33,6 +33,11 @@ define actor InputWeight<messages=Signals> as
     receive(Signals m) with state.read, state.write {
         do match m over {
             on Signal.Data as x {
+                // Fixed-sample integer safety envelope. Avoid overflow from
+                // external actor mail before multiplying by the saved weight.
+                if x < -1000 || x > 1000; do
+                    return -8;
+                fi
                 // Reserve the forward context under a short exclusive loan.
                 const (accepted, w) = using state.write(critical |s| -> {
                     // A duplicate/late forward must never overwrite the
@@ -50,6 +55,9 @@ define actor InputWeight<messages=Signals> as
                 fi
             }
             on Signal.Gradient as dy {
+                if dy < -4096 || dy > 4096; do
+                    return -8;
+                fi
                 // Observe saved context; no state loan crosses an actor send.
                 const saved_x = using state.read(|s| -> s.saved_input);
                 const contribution = saved_x * dy;
@@ -87,6 +95,9 @@ define transform pipe actor HiddenWeight<
     receive_forward(ForwardSignal m): void with state.read, state.write {
         do match m over {
             on Signal.Data as activation {
+                if activation < -1000 || activation > 1000; do
+                    return;
+                fi
                 const (accepted, w) = using state.write(critical |s| -> {
                     if s.issued || s.applied || s.version != 1; do
                         return (false, 0);
@@ -106,6 +117,9 @@ define transform pipe actor HiddenWeight<
     receive_backward(BackwardSignal m): void with state.read, state.write {
         do match m over {
             on Signal.Gradient as dy {
+                if dy < -4096 || dy > 4096; do
+                    return;
+                fi
                 // Snapshot old weight before publishing the optimizer update.
                 // Take one atomic, primitive-valued read snapshot. Separate
                 // read permits would permit mixed-version observations if
@@ -146,6 +160,9 @@ define actor SquaredLoss<messages=Signals> as
     receive(Signals m) with state.read, state.write {
         do match m over {
             on Signal.Data as prediction {
+                if prediction < -1000 || prediction > 1000; do
+                    return -8;
+                fi
                 const (accepted, target) = using state.write(critical |s| -> {
                     if s.seen_forward; do
                         return (false, 0);
