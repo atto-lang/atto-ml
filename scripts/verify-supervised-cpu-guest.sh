@@ -82,10 +82,22 @@ require_blob oreslang-autograd src/tape.ores caf8f2a616eb75a0365efa9fb88b4d01cd1
 require_blob oreslang-autograd src/forward_checked.ores a14a6410c024581b9e002f858a46fc94cbaeca85
 require_blob oreslang-autograd src/backward_checked.ores ea85a8544b89d7047f434a98ff744fd530a83107
 
+# Verify the exact same guest fixture whose behavior was reviewed.
+# The integration branch can change independently of library revisions, so
+# source file identity must be pinned as well as dependent Git trees.
+source="$root/examples/train_supervised_tensor_autograd.ores"
+if [[ ! -f "$source" ]]; then
+  echo "NOT_EXECUTED: supervised CPU guest fixture is missing" >&2
+  exit 78
+fi
+actual_fixture_blob="$(git -C "$root" hash-object -- "$source")"
+if [[ "$actual_fixture_blob" != "0373080c2500df49e476c777c5598463ca126aac" ]]; then
+  echo "NOT_EXECUTED: supervised CPU guest fixture Git blob changed" >&2
+  exit 78
+fi
 temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT
 printf '%s\n' "ORES_ML_SUPERVISED_TENSOR_AUTOGRAD_PASS" > "$temp/expected"
-source="$root/examples/train_supervised_tensor_autograd.ores"
 printf 'INVOKING_REAL_ORESLANG_GUEST %s\n' "$source" >&2
 if ! "$ORESLANG_BIN" "$source" > "$temp/actual" 2> "$temp/stderr"; then
   cat "$temp/stderr" >&2
@@ -98,4 +110,4 @@ if ! cmp -s "$temp/expected" "$temp/actual"; then
   echo "ORESLANG_GUEST=OUTPUT_MISMATCH; no pass receipt" >&2
   exit 1
 fi
-echo "ORESLANG_GUEST=PASS; COMPILER_SHA256=$actual_compiler_digest; DEPENDENCY_TREES=3; DEPENDENCY_BLOBS=6; CPU_AUTOGRAD=VERIFIED"
+echo "ORESLANG_GUEST=PASS; COMPILER_SHA256=$actual_compiler_digest; DEPENDENCY_TREES=3; DEPENDENCY_BLOBS=6; FIXTURE_BLOB=1; CPU_AUTOGRAD=VERIFIED"
