@@ -1,0 +1,124 @@
+// Proposed REAL Oreslang guest acceptance fixture for a nullable-data -> two-layer
+// ReLU network -> reverse-mode autodiff -> checked SGD pipeline. This does not
+// currently prove Oreslang guest execution or actor-managed tensor storage.
+// Requires sibling oreslang-data-science and oreslang-autograd checkouts.
+import class FloatColumn from '../../oreslang-data-science/src/data/columnar';
+import class DenseSupervisedBatchF64 from '../../oreslang-data-science/src/pipeline/ml_batch_bridge';
+import fnc compact_supervised_f64_into from '../../oreslang-data-science/src/pipeline/ml_batch_bridge';
+import class TapeF64 from '../../oreslang-autograd/src/tape';
+import fnc forward_checked_into from '../../oreslang-autograd/src/forward_checked';
+import fnc backward_checked_into from '../../oreslang-autograd/src/backward_checked';
+
+pub routine main(): void {
+  val FloatColumn feature = new FloatColumn(
+    "x", arr[0.0, 999.0, 1.0, 2.0, 3.0],
+    arr[true, false, true, true, true]
+  );
+  val FloatColumn target = new FloatColumn(
+    "y", arr[1.0, 999.0, 3.0, 5.0, 7.0],
+    arr[true, false, true, true, true]
+  );
+  val List<float> x = arr[0.0,0.0,0.0,0.0,0.0];
+  val List<float> y = arr[0.0,0.0,0.0,0.0,0.0];
+  val List<int> row_ids = arr[0,0,0,0,0];
+  val Result<DenseSupervisedBatchF64, String> prepared =
+    compact_supervised_f64_into(feature,target,x,y,row_ids);
+  if prepared.is_err(); do
+    stdio.println("ORES_TWO_LAYER_FAIL batch");
+    return;
+  fi
+  val DenseSupervisedBatchF64 batch = prepared.unwrap();
+  if batch.count != 4 || row_ids[0] != 0 || row_ids[1] != 2
+      || row_ids[2] != 3 || row_ids[3] != 4
+      || x[0] != 0.0 || x[3] != 3.0
+      || y[0] != 1.0 || y[3] != 7.0; do
+    stdio.println("ORES_TWO_LAYER_FAIL provenance");
+    return;
+  fi
+  // For this CPU reference, parameter lists are local to the main routine,
+  // NOT mutable state fields of an actor. Actor ownership is another milestone.
+  val List<float> first_weight = arr[1.0];
+  val List<float> first_bias = arr[1.0];
+  val List<float> second_weight = arr[1.0];
+  val List<float> second_bias = arr[0.0];
+  val float rate = 0.02;
+  let float final_loss = 0.0;
+
+  for int epoch = 0; epoch < 1000; epoch++ do
+    let float dw1 = 0.0;
+    let float db1 = 0.0;
+    let float dw2 = 0.0;
+    let float db2 = 0.0;
+    let float loss = 0.0;
+
+    for int i = 0; i < batch.count; i++ do
+      // Nodes 0..5: leaves [w1,x,b1,w2,b2,-y].
+      // Node 6: w1*x; 7: +b1; 8: ReLU; 9: w2*h;
+      // 10: +b2; 11: -y; 12: squared error.
+      // The graph is a verified topologically ordered 13-node DAG.
+      val TapeF64 tape = new TapeF64(
+        arr[0,0,0,0,0,0,2,1,3,2,1,1,2],
+        arr[-1,-1,-1,-1,-1,-1,0,6,7,3,9,10,11],
+        arr[-1,-1,-1,-1,-1,-1,1,2,-1,8,4,5,11],
+        arr[first_weight[0],x[i],first_bias[0],
+            second_weight[0],second_bias[0],0.0-y[i],
+            0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+      );
+      val List<float> activation = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      val List<float> gradient = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      val List<float> forward_scratch = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      val List<float> backward_scratch = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      if forward_checked_into(tape,forward_scratch,activation).is_err(); do
+        stdio.println("ORES_TWO_LAYER_FAIL forward");
+        return;
+      fi
+      if backward_checked_into(
+        tape,activation,12,1.0,backward_scratch,gradient
+      ).is_err(); do
+        stdio.println("ORES_TWO_LAYER_FAIL backward");
+        return;
+      fi
+      val float new_dw1 = dw1 + gradient[0];
+      val float new_db1 = db1 + gradient[2];
+      val float new_dw2 = dw2 + gradient[3];
+      val float new_db2 = db2 + gradient[4];
+      val float new_loss = loss + activation[12];
+      if (new_dw1-new_dw1) != 0.0 || (new_db1-new_db1) != 0.0
+          || (new_dw2-new_dw2) != 0.0 || (new_db2-new_db2) != 0.0
+          || (new_loss-new_loss) != 0.0; do
+        stdio.println("ORES_TWO_LAYER_FAIL accumulation");
+        return;
+      fi
+      dw1 = new_dw1; db1 = new_db1;
+      dw2 = new_dw2; db2 = new_db2; loss = new_loss;
+    done
+
+    // Evaluate ALL candidate parameters before changing any shared local
+    // parameter vector; future actor implementation publishes all together
+    // under a version-fenced exclusive state write loan.
+    val float cw1 = first_weight[0] - (rate*dw1/batch.count);
+    val float cb1 = first_bias[0] - (rate*db1/batch.count);
+    val float cw2 = second_weight[0] - (rate*dw2/batch.count);
+    val float cb2 = second_bias[0] - (rate*db2/batch.count);
+    val float candidate_loss = loss/batch.count;
+    if (cw1-cw1) != 0.0 || (cb1-cb1) != 0.0
+        || (cw2-cw2) != 0.0 || (cb2-cb2) != 0.0
+        || (candidate_loss-candidate_loss) != 0.0; do
+      stdio.println("ORES_TWO_LAYER_FAIL optimizer");
+      return;
+    fi
+    first_weight[0] = cw1; first_bias[0] = cb1;
+    second_weight[0] = cw2; second_bias[0] = cb2;
+    final_loss = candidate_loss;
+  done
+  if final_loss >= 0.000001; do
+    stdio.println("ORES_TWO_LAYER_FAIL convergence");
+    return;
+  fi
+  stdio.println("ORES_TWO_LAYER_AUTOGRAD_PASS");
+  return;
+}
