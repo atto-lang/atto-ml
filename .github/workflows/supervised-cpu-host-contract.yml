@@ -1,0 +1,34 @@
+name: Supervised CPU data tensor autograd (host-only)
+on:
+  pull_request:
+    paths:
+      - "examples/train_supervised_tensor_autograd.ores"
+      - "tests/supervised_tensor_autograd_contract.test.mjs"
+      - "scripts/verify-supervised-cpu-guest.sh"
+      - "docs/SUPERVISED_CPU_INTEGRATION_V1.md"
+      - ".github/workflows/supervised-cpu-host-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  independent-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify checked-out source revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Execute independent source and convergence oracle
+        run: node --test tests/supervised_tensor_autograd_contract.test.mjs
+      - name: Validate future compiled guest verifier syntax
+        run: bash -n scripts/verify-supervised-cpu-guest.sh
+      - name: Preserve evidence boundaries
+        run: echo "HOST_ONLY; ORESLANG_GUEST_EXECUTION=NOT_EXECUTED; ACTOR_TRAINING=NOT_EXECUTED"
