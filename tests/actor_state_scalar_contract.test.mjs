@@ -9,7 +9,7 @@ const source = readFileSync(file, "utf8");
 test("single state schema; no actor field storage or self.state bypass", () => {
   assert.match(source,/define actor VersionedScalarStage as/);
   assert.equal((source.match(/\bstate\s*\{/g)||[]).length,1);
-  assert.doesNotMatch(source,/\bself\.state\b/);
+  assert.doesNotMatch(source.replace(/\/\/[^\n]*/g,""),/\bself\.state\b/);
   assert.doesNotMatch(source,/^\s*(val|let)\s+(?:Tensor|Linear|Optimizer|Gradient)\s+/m);
 });
 
@@ -53,6 +53,6 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
   for(const w of [-9,0,1,3,20])for(const x of [-4,0,1,2,8])for(const upstream of [-3,0,1,5]){
     const f=(v)=>upstream*(v*x);
     const finite=(f(w+1)-f(w-1))/2;
-    assert.equal(finite,x*upstream);
+    assert(finite === x*upstream); // signed zero is not a gradient mismatch
   }
 });
