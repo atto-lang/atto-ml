@@ -4,6 +4,9 @@ on:
     paths:
       - "examples/train_actor_state_scalar.ores"
       - "tests/actor_state_scalar_contract.test.mjs"
+      - "tests/actor_state_negative_manifest.test.mjs"
+      - "tests/fixtures/actor-state-ml-negatives/**"
+      - "docs/ACTOR_STATE_ML_NEGATIVE_GATES.md"
       - "tests/golden/actor_state_scalar.stdout"
       - "scripts/verify-actor-state-guest.sh"
       - "docs/ACTOR_STATE_TRAINING_MILESTONE.md"
@@ -21,7 +24,7 @@ jobs:
         with:
           node-version: "22"
       - name: Run source spelling and scalar numerical reference cases
-        run: node --test tests/actor_state_scalar_contract.test.mjs
+        run: node --test tests/actor_state_scalar_contract.test.mjs tests/actor_state_negative_manifest.test.mjs
       - name: Syntax check future compiled-guest validator
         run: bash -n scripts/verify-actor-state-guest.sh
       - name: Clearly identify evidence boundary
