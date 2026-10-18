@@ -232,9 +232,9 @@ test("all actor training operations report Result errors without numeric sentine
 test("a legitimate negative forward result cannot be confused with rejection",()=>{
   const output=readFileSync(new URL("./golden/actor_state_scalar.stdout",import.meta.url),"utf8")
     .trim().split(/\r?\n/);
-  assert.equal(output[22],"-10");
-  assert.equal(output[20],"REJECTED");
-  assert.match(source,/self\.eval_affine\(3, 3, 2, -2\)/);
+  assert.equal(output[24],"-10");
+  assert.equal(output[22],"REJECTED");
+  assert.match(source,/self\.eval_affine\(3, 3, 2, -2, 101, 1\)/);
   assert.equal(5*(-2),-10);
 });
 
