@@ -5,6 +5,9 @@
 import class FloatColumn from '../../oreslang-data-science/src/data/columnar';
 import class DenseSupervisedBatchF64 from '../../oreslang-data-science/src/pipeline/ml_batch_bridge';
 import fnc compact_supervised_f64_into from '../../oreslang-data-science/src/pipeline/ml_batch_bridge';
+import class TensorF64 from '../../oreslang-tensor/src/tensor';
+import fnc gather_rows_2d_f64_into from '../../oreslang-tensor/src/row_batches';
+import fnc row_gather_vjp_with_saved_f64_checked_into from '../../oreslang-autograd/src/row_gather_vjp';
 import class TapeF64 from '../../oreslang-autograd/src/tape';
 import fnc forward_checked_into from '../../oreslang-autograd/src/forward_checked';
 import fnc backward_checked_into from '../../oreslang-autograd/src/backward_checked';
@@ -35,6 +38,24 @@ pub routine main(): void {
     stdio.println("ORES_TWO_LAYER_FAIL provenance");
     return;
   fi
+  // Re-gather the same original row IDs into an actual rank-2 TensorF64.
+  // This asserts that the data column batch and tensor batch agree on order.
+  val TensorF64 original = new TensorF64(arr[5,1],feature.values);
+  val List<int> selected = arr[row_ids[0],row_ids[1],row_ids[2],row_ids[3]];
+  val List<float> gathered = arr[0.0,0.0,0.0,0.0];
+  if gather_rows_2d_f64_into(original,selected,gathered).is_err(); do
+    stdio.println("ORES_TWO_LAYER_FAIL tensor-gather");
+    return;
+  fi
+  for int j=0; j<batch.count; j++ do
+    if gathered[j] != x[j]; do
+      stdio.println("ORES_TWO_LAYER_FAIL tensor-provenance");
+      return;
+    fi
+  done
+  val TensorF64 saved_forward = new TensorF64(arr[4,1],gathered);
+  val List<float> saved_input_gradient = arr[0.0,0.0,0.0,0.0];
+
   // For this CPU reference, parameter lists are local to the main routine,
   // NOT mutable state fields of an actor. Actor ownership is another milestone.
   val List<float> first_weight = arr[1.0];
@@ -95,6 +116,11 @@ pub routine main(): void {
       fi
       dw1 = new_dw1; db1 = new_db1;
       dw2 = new_dw2; db2 = new_db2; loss = new_loss;
+      // Preserve dLoss/dX from the same last-epoch tape generation for a
+      // separate tensor row-gather reverse-mode VJP.
+      if epoch == 999; do
+        saved_input_gradient[i] = gradient[1];
+      fi
     done
 
     // Evaluate ALL candidate parameters before changing any shared local
@@ -115,6 +141,29 @@ pub routine main(): void {
     second_weight[0] = cw2; second_bias[0] = cb2;
     final_loss = candidate_loss;
   done
+  // Use the tensor/autograd row-gather adapter to reverse-map dLoss/dX
+  // from [4,1] compacted examples to [5,1] original rows. Excluded row 1
+  // must never receive an upstream contribution.
+  val TensorF64 upstream = new TensorF64(arr[4,1],saved_input_gradient);
+  val List<float> reverse_forward_scratch = arr[0.0,0.0,0.0,0.0];
+  val List<float> reverse_gradient_scratch = arr[0.0,0.0,0.0,0.0,0.0];
+  val List<float> reverse_gradient_output = arr[0.0,0.0,0.0,0.0,0.0];
+  if row_gather_vjp_with_saved_f64_checked_into(
+    original,selected,saved_forward,upstream,reverse_forward_scratch,
+    reverse_gradient_scratch,reverse_gradient_output
+  ).is_err(); do
+    stdio.println("ORES_TWO_LAYER_FAIL tensor-vjp");
+    return;
+  fi
+  if reverse_gradient_output[1] != 0.0
+      || reverse_gradient_output[0] != saved_input_gradient[0]
+      || reverse_gradient_output[2] != saved_input_gradient[1]
+      || reverse_gradient_output[3] != saved_input_gradient[2]
+      || reverse_gradient_output[4] != saved_input_gradient[3]; do
+    stdio.println("ORES_TWO_LAYER_FAIL tensor-backward-rows");
+    return;
+  fi
+
   if final_loss >= 0.000001; do
     stdio.println("ORES_TWO_LAYER_FAIL convergence");
     return;
