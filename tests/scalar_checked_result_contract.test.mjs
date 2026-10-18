@@ -39,3 +39,27 @@ test("4096 seeded numeric cases stay inside the scalar safe domain",()=>{
     assert(Math.abs(w-x*upstream)<=100010000);
   }
 });
+
+
+test("zero receipts require zero gradient and one receipt caps first contribution",()=>{
+  assert.match(source,/if receipts == 0 && running_gradient != 0/);
+  assert.match(source,/return Err\("UNBACKED_ACCUMULATOR"\)/);
+  assert.match(source,/if receipts == 1/);
+  assert.match(source,/running_gradient < -100000000 \|\| running_gradient > 100000000/);
+  assert.match(guest,/checked_scalar_gradient\(1, 1, 1, 0\)\.is_err\(\)/);
+  assert.match(guest,/checked_scalar_gradient\(1, 1, 100000001, 1\)\.is_err\(\)/);
+});
+test("receipt-admissibility boundaries are mathematically complete for one contribution",()=>{
+  const canStage=(receipts,current,x,upstream)=>{
+    if(receipts<0||receipts>=2)return false;
+    if(!bounded(x)||!bounded(upstream))return false;
+    if(receipts===0&&current!==0)return false;
+    if(receipts===1&&Math.abs(current)>100000000)return false;
+    return Math.abs(current+x*upstream)<=200000000;
+  };
+  assert.equal(canStage(0,0,10000,10000),true);
+  assert.equal(canStage(0,1,1,1),false);
+  assert.equal(canStage(1,100000000,10000,10000),true);
+  assert.equal(canStage(1,100000001,1,1),false);
+  assert.equal(canStage(2,0,1,1),false);
+});
