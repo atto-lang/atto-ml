@@ -145,3 +145,36 @@ test("actor startup/shutdown uses canonical lifecycle methods, not property alia
   const done=source.indexOf("await worker.get_done();");
   assert(ready>0&&firstSend>ready&&lastSend>firstSend&&done>lastSend);
 });
+
+test("bounded domain guards happen before receipt mutations",()=>{
+  const forward=source.slice(source.indexOf("private eval_affine("),source.indexOf("private accumulate("));
+  const backward=source.slice(source.indexOf("private accumulate("),source.indexOf("private commit("));
+  const commit=source.slice(source.indexOf("private commit("),source.indexOf("private weight_snapshot("));
+  const fguard=forward.indexOf("if x < -10000");
+  const bguard=backward.indexOf("if upstream < -10000");
+  const cguard=commit.indexOf("if candidate_weight < -10000");
+  assert(fguard>0&&fguard<forward.indexOf("s.issued_first = true"));
+  assert(bguard>0&&bguard<backward.indexOf("s.seen_first = true"));
+  assert(cguard>0&&cguard<commit.indexOf("s.weight = candidate_weight"));
+  assert.match(commit,/if s\.step >= 1000000 \|\| s\.version >= 1000000/);
+  assert(10000*10000*2+10000<=2147483647);
+});
+test("bounded numeric rejects preserve source-gradient receipts and committed version",()=>{
+  const stage={weight:5,version:2,step:2,input:10000,seen:false,gradient:0};
+  const valid=x=>Number.isSafeInteger(x)&&x>=-10000&&x<=10000;
+  const unsafe=10001;
+  if(valid(unsafe))stage.seen=true;
+  assert.equal(stage.seen,false);
+  const contrib=stage.input*10000;
+  stage.gradient+=contrib;stage.seen=true;
+  stage.gradient+=contrib;
+  assert.equal(stage.gradient,200000000);
+  const candidate=stage.weight-stage.gradient;
+  if(valid(candidate)){stage.weight=candidate;stage.version++;stage.step++;}
+  assert.equal(stage.weight,5);
+  assert.equal(stage.version,2);
+  assert.equal(stage.step,2);
+  const golden=readFileSync(new URL("./golden/actor_state_scalar.stdout",import.meta.url),"utf8")
+     .trim().split(/\r?\n/).map(Number);
+  assert.deepEqual(golden.slice(-7),[50000,50000,100000000,200000000,-8,2,10]);
+});
