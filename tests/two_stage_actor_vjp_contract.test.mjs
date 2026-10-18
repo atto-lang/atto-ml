@@ -64,7 +64,9 @@ test("effect bounds and short RW loans cover all state access",()=>{
 });
 test("stage 1 uses old weight before publishing an update",()=>{
   const region=source.slice(source.indexOf("receive_backward("),source.indexOf("define actor SquaredLoss"));
-  assert(region.indexOf("const old_weight = using state.read")>=0);
+  assert(region.includes("using state.read(|s| ->"));
+  assert(region.includes("(s.saved_input, s.weight, s.version, s.issued, s.applied)"));
+  assert(region.includes("const (input, old_weight, observed_version, was_issued, was_applied)"));
   assert(region.indexOf("const upstream = old_weight * dy")<region.indexOf("s.weight = s.weight - gradient"));
   assert(region.indexOf("s.weight = s.weight - gradient")<region.indexOf("self.backward(Signal.Gradient(upstream))"));
 });
@@ -97,9 +99,38 @@ test("local step versions update exactly once and save immutable old weights",()
   assert.equal(actual.stage1.state.issued,false);
 });
 test("user code contains only the one-message bootstrap and rejects duplicate update",()=>{
-  assert.match(source,/s\.applied \|\| s\.version != 1/);
+  assert.match(source,/s\.applied \|\| s\.version != observed_version/);
   assert.match(source,/s\.applied = true/);
   assert.match(source,/s\.issued = false/);
   assert.equal((source.match(/source\.send\(Signal\.Data\(/g)||[]).length,1);
   assert.doesNotMatch(source,/\bawait\b|\bself\.state\b/);
+});
+
+test("a single RW read loan gives a consistent forward-context snapshot",()=>{
+  const backward=source.slice(source.indexOf("receive_backward(ForwardSignal")>=0
+      ? source.indexOf("receive_backward(ForwardSignal")
+      : source.indexOf("receive_backward(BackwardSignal"));
+  const relevant=backward.slice(0,backward.indexOf("define actor SquaredLoss"));
+  const readLoans=[...relevant.matchAll(/using state\.read\(/g)].length;
+  assert.equal(readLoans,1);
+  assert.match(relevant,/observed_version != 1/);
+  assert.match(relevant,/s\.version != observed_version/);
+  assert.match(relevant,/was_issued \|\| was_applied/);
+});
+test("mixed read generations are rejected, whereas atomic snapshots are consistent",()=>{
+  // Independent concurrency interleaving: a split read can return old x
+  // with new w after a competing publication. One read-cohort snapshot cannot.
+  const older={input:6,weight:3,version:1};
+  const newer={input:7,weight:4,version:2};
+  const inconsistent={input:older.input,weight:newer.weight,version:newer.version};
+  assert.equal(inconsistent.input,6);
+  assert.equal(inconsistent.weight,4);
+  assert.deepEqual(
+      Object.freeze({...older}),
+      {input:6,weight:3,version:1});
+  assert.deepEqual(
+      Object.freeze({...newer}),
+      {input:7,weight:4,version:2});
+  assert.notDeepEqual(inconsistent,older);
+  assert.notDeepEqual(inconsistent,newer);
 });
