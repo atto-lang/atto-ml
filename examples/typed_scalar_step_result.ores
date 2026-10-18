@@ -24,6 +24,21 @@ pub routine main(): void {
         stdio.println("ORES_TYPED_SCALAR_FAIL gradient-error");
         return;
     fi
+    // No first gradient may be supplied without an actual first receipt.
+    if !checked_scalar_gradient(1, 1, 1, 0).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL forged-zero-receipts");
+        return;
+    fi
+    if !checked_scalar_gradient(1, 1, 100000001, 1).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL forged-single-receipt");
+        return;
+    fi
+    val Result<int, String> allowed_next =
+        checked_scalar_gradient(1, 1, 100000000, 1);
+    if allowed_next.is_err() || allowed_next.unwrap() != 100000001; do
+        stdio.println("ORES_TYPED_SCALAR_FAIL valid-single-receipt");
+        return;
+    fi
     val Result<int, String> commit = checked_scalar_candidate(10, 5, 2, 1, 1);
     if commit.is_err() || commit.unwrap() != 5; do
         stdio.println("ORES_TYPED_SCALAR_FAIL candidate");
