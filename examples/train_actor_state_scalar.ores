@@ -45,7 +45,7 @@ define actor VersionedScalarStage as
             // Forward multiplication is therefore <= 1e8, with no mutation
             // on invalid input. This method returns a typed error instead of a numerical sentinel.
             if x < -10000 || x > 10000 || s.weight < -10000 || s.weight > 10000; do
-                return Err("INVALID_OR_UNSAFE_INPUT");
+                return Err("INVALID_INPUT");
             fi
             if microbatch == 1; do
                 if s.issued_first; do
@@ -87,7 +87,7 @@ define actor VersionedScalarStage as
             // <= 1e8; two contributions cannot overflow a signed 32-bit int.
             // Reject first so neither seen bit nor gradient is consumed.
             if upstream < -10000 || upstream > 10000; do
-                return Err("INVALID_OR_UNSAFE_INPUT");
+                return Err("INVALID_GRADIENT");
             fi
             if microbatch == 1; do
                 if !s.issued_first; do
@@ -139,7 +139,7 @@ define actor VersionedScalarStage as
             fi
             val int candidate_weight = s.weight - s.accumulated_gradient;
             if candidate_weight < -10000 || candidate_weight > 10000; do
-                return Err("INVALID_OR_UNSAFE_INPUT");
+                return Err("UNSAFE_CANDIDATE");
             fi
             // All checks complete: one exclusive state transaction publishes
             // candidate weight, version, step, and cleared gradient receipts.
