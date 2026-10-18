@@ -130,3 +130,15 @@ test("backprop consumes only recorded forward contexts and clears them on commit
   assert.match(source,/return -7;/); // duplicate forward
   assert.doesNotMatch(source,/private accumulate\([^)]*\bint x\b/);
 });
+
+
+test("actor startup/shutdown uses canonical lifecycle methods, not property aliases",()=>{
+  assert.match(source,/await worker\.get_ready\(\);/);
+  assert.match(source,/await worker\.get_done\(\);/);
+  assert.doesNotMatch(source,/await worker\.(?:ready|done)\s*;/);
+  const ready=source.indexOf("await worker.get_ready();");
+  const firstSend=source.indexOf('worker.send("orphan")');
+  const lastSend=source.indexOf('worker.send("after")');
+  const done=source.indexOf("await worker.get_done();");
+  assert(ready>0&&firstSend>ready&&lastSend>firstSend&&done>lastSend);
+});
