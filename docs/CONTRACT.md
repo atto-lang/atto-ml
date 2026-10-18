@@ -19,8 +19,7 @@ Pending dependencies:
 3. `Linear`, `Sequential`, `MSELoss`, and SGD abstraction over tensor
    parameters, with explicit parameter ownership and optimizer state.
 4. Native Java/Graal execution, then actual LLVM AOT execution and parity.
-5. NaN/Inf/numeric overflow policy; current scalar reference only validates
-   learning-rate finiteness and input shapes.
+5. Numeric exceptional-value and cross-backend policy. Current scalar reference now rejects nonfinite inputs/parameters and preflights candidate result values before mutating outputs, but does not prove IEEE semantics/atomic publication under concurrent aliases.
 
 Source-level CPU kernels must not be reimplemented using hidden host
 ML frameworks. Independent Python/PyTorch benchmarks are acceptable **oracles**,
