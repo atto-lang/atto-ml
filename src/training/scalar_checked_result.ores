@@ -23,8 +23,19 @@ pub fnc checked_scalar_gradient(
     if !bounded(saved_input) || !bounded(upstream); do
         return Err("INVALID_GRADIENT");
     fi
+    // Receipt count constrains the attainable accumulated gradient:
+    // zero receipts MUST carry zero; one receipt contributes at most 1e8.
+    // This does not authenticate the receipt, but rejects impossible local
+    // states before producing a candidate for the actor's write loan.
     if running_gradient < -200000000 || running_gradient > 200000000; do
         return Err("INVALID_ACCUMULATOR");
+    fi
+    if receipts == 0 && running_gradient != 0; do
+        return Err("UNBACKED_ACCUMULATOR");
+    fi
+    if receipts == 1
+        && (running_gradient < -100000000 || running_gradient > 100000000); do
+        return Err("UNBACKED_ACCUMULATOR");
     fi
     val int candidate = running_gradient + (saved_input * upstream);
     if candidate < -200000000 || candidate > 200000000; do
