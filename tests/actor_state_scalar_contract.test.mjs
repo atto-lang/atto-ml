@@ -86,11 +86,11 @@ test("expected guest-output golden includes orphan and duplicate-forward rejecti
     ["REJECTED","REJECTED","20","REJECTED","30","REJECTED","2","REJECTED","REJECTED","5","5","2","REJECTED","REJECTED","REJECTED","50000","50000","100000000","200000000","REJECTED","2","3","REJECTED","10","-10","10"]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","wrong_run","wrong_incarnation","high_forward1","high_forward2","high_grad1","high_grad2","stale_after_cancel","new_forward","new_negative_forward","after"]);
+    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","wrong_run","wrong_incarnation","high_forward1","high_forward2","high_grad1","high_grad2","stale_after_cancel","new_forward","new_negative_forward"]);
 });
 
 
-test("every accumulate invocation has four arguments and matching step/version",()=>{
+test("every accumulate invocation has six arguments and matching run/incarnation",()=>{
   const calls=[...source.matchAll(/self\.accumulate\(([^)]*)\)/g)];
   assert.equal(calls.length,9);
   for(const call of calls) {
@@ -143,7 +143,7 @@ test("actor startup/shutdown uses canonical lifecycle methods, not property alia
   assert.doesNotMatch(source,/await worker\.(?:ready|done)\s*;/);
   const ready=source.indexOf("await worker.get_ready();");
   const firstSend=source.indexOf('worker.send("orphan")');
-  const lastSend=source.indexOf('worker.send("after")');
+  const lastSend=source.indexOf('worker.send("new_negative_forward")');
   const done=source.indexOf("await worker.get_done();");
   assert(ready>0&&firstSend>ready&&lastSend>firstSend&&done>lastSend);
 });
@@ -265,10 +265,32 @@ test("cancellation is not directly addressable as a string mail command",()=>{
   assert.doesNotMatch(source,/worker\.send\("cancel_failed"\)/);
   assert.doesNotMatch(handler,/mail\.value == "high_commit"/);
   assert.doesNotMatch(source,/worker\.send\("high_commit"\)/);
+  assert.doesNotMatch(handler,/mail\.value == "after"/);
+  assert.doesNotMatch(source,/worker\.send\("after"\)/);
+  assert.match(source,/private demo_finish_ready\(\): bool with state\.read/);
+  assert.match(source,/s\.issued_first && s\.issued_second/);
+  assert.match(handler,/!final_result\.is_err\(\) && self\.demo_finish_ready\(\)/);
   const decision=handler.slice(handler.indexOf('mail.value == "high_grad2"'),handler.indexOf('mail.value == "stale_after_cancel"'));
   assert.match(decision,/if !final_gradient\.is_err\(\)/);
   assert.match(decision,/self\.commit\(2, 2, 101, 1\)/);
   assert.match(decision,/outcome\.is_err\(\)/);
   assert.match(decision,/self\.cancel_rejected\(2, 2, 101, 1\)/);
   // This is an internal recovery decision, NOT caller authentication of other commands.
+});
+
+test("termination requires successful last-step forward and completed snapshot",()=>{
+  const handler=source.slice(source.indexOf("receive(ActorMail<String> mail)"));
+  const terminal=handler.slice(handler.indexOf('mail.value == "new_negative_forward"'),
+      handler.indexOf("\n        return;\n    }\nend"));
+  const result=terminal.indexOf("self.eval_affine(3, 3, 2, -2, 101, 1)");
+  const guard=terminal.indexOf("!final_result.is_err() && self.demo_finish_ready()");
+  const end=terminal.indexOf("self.end()");
+  assert(result>=0&&guard>result&&end>guard);
+  assert.doesNotMatch(handler,/mail\.value == "after"/);
+  const predicate=source.slice(source.indexOf("private demo_finish_ready("),
+      source.indexOf("\n    receive("));
+  for(const check of ["s.step == 3", "s.version == 3","s.run_id == 101",
+      "s.incarnation == 1", "s.issued_first && s.issued_second", "s.pending_gradients == 0"]){
+    assert(predicate.includes(check),check);
+  }
 });
