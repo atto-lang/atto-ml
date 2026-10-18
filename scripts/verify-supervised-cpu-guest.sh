@@ -15,7 +15,7 @@ workspace="$(dirname "$root")"
 require_blob() {
   local repo="$1" path="$2" expected="$3"
   local base="$workspace/$repo"
-  if [[ ! -f "$base/$path" || ! -d "$base/.git" ]]; then
+  if [[ ! -f "$base/$path" || ! -e "$base/.git" ]]; then
     echo "NOT_EXECUTED: missing local source $repo/$path" >&2
     exit 78
   fi
