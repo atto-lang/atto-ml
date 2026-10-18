@@ -4,7 +4,8 @@
 // loss = (y_hat - target)^2. No analytic differentiation in this example.
 import module Assert from "std/assert";
 import class TapeF64 from "../../oreslang-autograd/src/tape";
-import fnc forward_f64_into, backward_f64_into from "../../oreslang-autograd/src/tape";
+import fnc forward_checked_into from "../../oreslang-autograd/src/forward_checked";
+import fnc backward_checked_into from "../../oreslang-autograd/src/backward_checked";
 
 pub routine main(): void {
   val List<float> xs = arr[0.0, 1.0, 2.0, 3.0];
