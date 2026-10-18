@@ -131,6 +131,11 @@ test("real-guest verifier pins six dependency source blobs and fails closed",()=
   assert.equal((verifier.match(/^require_blob oreslang-/gm)||[]).length,6);
   assert.match(verifier,/git -C "\$base" hash-object/);
   assert.match(verifier,/ORESLANG_BIN/);
+  assert.match(verifier,/ORESLANG_BIN_SHA256/);
+  assert.match(verifier,/64-digit ORESLANG_BIN_SHA256/);
+  assert.match(verifier,/pinned Oreslang executable SHA-256 mismatch/);
+  assert.match(verifier,/sha256sum|shasum/);
+  assert.match(verifier,/COMPILER_SHA256=\$actual_compiler_digest/);
   assert.match(verifier,/cmp -s/);
   assert.match(verifier,/GUEST=FAILED; no pass receipt/);
   assert.match(verifier,/GUEST=OUTPUT_MISMATCH; no pass receipt/);
