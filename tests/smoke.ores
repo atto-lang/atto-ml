@@ -13,6 +13,9 @@ pub routine main(): void {
   );
   Assert.equal_throws(weights[0], 0.0);
   Assert.equal_throws(biases[0], 0.0);
+  Assert.true_throws(train_affine_step(input, target, weights, weights, 0.05).is_err());
+  Assert.equal_throws(weights[0], 0.0);
+
 
   for int step = 0; step < 500; step++ do
     Assert.true_throws(
