@@ -105,7 +105,7 @@ else
   echo "NOT_EXECUTED: a GNU-compatible timeout command is required" >&2
   exit 78
 fi
-if [[ ! "${ORESLANG_GUEST_TIMEOUT_SECONDS:-120}" =~ ^[1-9][0-9]*$ ]]; then
+if [[ ! "${ORESLANG_GUEST_TIMEOUT_SECONDS:-120}"  =~ ^[1-9][0-9]{0,2}$ ]]; then
   echo "NOT_EXECUTED: invalid positive guest timeout seconds" >&2
   exit 78
 fi
