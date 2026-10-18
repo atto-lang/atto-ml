@@ -106,7 +106,20 @@ pub routine main(): void {
       Assert.true_throws(scatter_add_f64_into(
         per_sample_dw, source_rows, 4, source_dw, scatter_scratch
       ).is_ok());
+      // Exact first-step reverse-mode gradients for w=0, b=0:
+      // grad_w = [0,-6,-20,-42]; the fifth, masked source row stays 0.
+      Assert.equal_throws(per_sample_dw[0], 0.0);
+      Assert.equal_throws(per_sample_dw[1], -6.0);
+      Assert.equal_throws(per_sample_dw[2], -20.0);
+      Assert.equal_throws(per_sample_dw[3], -42.0);
+      Assert.equal_throws(source_dw[0], 0.0);
+      Assert.equal_throws(source_dw[1], -6.0);
+      Assert.equal_throws(source_dw[2], -20.0);
+      Assert.equal_throws(source_dw[3], -42.0);
       Assert.equal_throws(source_dw[4], 0.0);
+      Assert.equal_throws(batch_loss, 84.0);
+      Assert.equal_throws(grad_weight, -68.0);
+      Assert.equal_throws(grad_bias, -32.0);
     fi
 
     final_loss = batch_loss / 4.0;
