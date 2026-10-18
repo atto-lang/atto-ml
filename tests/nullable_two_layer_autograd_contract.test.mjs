@@ -40,15 +40,16 @@ function evalTape(w,x,y) {
     if(op===3&&v[a]>0)g[a]+=up;
   }
   if(g.some(x=>!Number.isFinite(x)))throw Error("NONFINITE_GRAD");
-  return {loss:v[12],grad:[g[0],g[2],g[3],g[4]],values:v};
+  return {loss:v[12],grad:[g[0],g[2],g[3],g[4]],inputGrad:g[1],values:v};
 }
 function train(rows,epochs=1000,rate=.02){
   if(!rows.length)throw Error("EMPTY");
-  let parameters=[1,1,1,0],last=0;
+  let parameters=[1,1,1,0],last=0,lastInputGrads=[];
   for(let e=0;e<epochs;e++){
     const grads=[0,0,0,0];let loss=0;
     for(const {x,y} of rows){
       const result=evalTape(parameters,x,y);loss+=result.loss;
+      if(e===epochs-1)lastInputGrads.push(result.inputGrad);
       result.grad.forEach((g,i)=>grads[i]+=g);
     }
     const candidates=parameters.map((w,i)=>w-rate*grads[i]/rows.length);
@@ -56,7 +57,7 @@ function train(rows,epochs=1000,rate=.02){
       throw Error("UNSAFE_COMMIT");
     parameters=candidates;last=loss/rows.length;
   }
-  return {parameters,loss:last};
+  return {parameters,loss:last,lastInputGrads};
 }
 test("guest fixture imports real nullable data and actual Oreslang tape kernels",()=>{
   assert.match(source,/oreslang-data-science\/src\/pipeline\/ml_batch_bridge/);
@@ -140,4 +141,43 @@ test("source does not pretend sequential tape is an actor-owned state capability
   assert.doesNotMatch(source,/\bdefine actor\b/);
   assert.doesNotMatch(source,/\bself\.state\b/);
   assert.match(source,/Actor ownership is another milestone/);
+});
+
+test("rank-2 tensor gather and saved-forward VJP imports are real",()=>{
+  assert.match(source,/oreslang-tensor\/src\/tensor/);
+  assert.match(source,/oreslang-tensor\/src\/row_batches/);
+  assert.match(source,/oreslang-autograd\/src\/row_gather_vjp/);
+  assert.match(source,/gather_rows_2d_f64_into\(original,selected,gathered\)/);
+  assert.match(source,/row_gather_vjp_with_saved_f64_checked_into\(/);
+  assert.match(source,/saved_input_gradient\[i\] = gradient\[1\]/);
+});
+test("tape gradients w.r.t. source inputs agree with finite difference",()=>{
+  const params=[1.1,1.3,1.2,-0.5],eps=1e-6;
+  for(const x of [0,1,2,3])for(const y of [1,3,5,7]){
+    const got=evalTape(params,x,y);
+    const finite=(evalTape(params,x+eps,y).loss-evalTape(params,x-eps,y).loss)/(2*eps);
+    assert(Math.abs(finite-got.inputGrad)<3e-7);
+  }
+});
+test("final tape gradients scatter to original row IDs; null row receives zero",()=>{
+  const batch=maskBatch([0,999,1,2,3],[1,999,3,5,7],
+     [true,false,true,true,true],[true,false,true,true,true]);
+  const result=train(batch);
+  const restored=Array(5).fill(0);
+  for(let i=0;i<batch.length;i++)restored[batch[i].row]+=result.lastInputGrads[i];
+  assert.equal(restored[1],0);
+  assert.deepEqual([restored[0],restored[2],restored[3],restored[4]],
+    result.lastInputGrads);
+});
+test("repeated row indices must scatter-add rather than overwrite",()=>{
+  const indices=[0,2,2,4],upstream=[1,3,5,7],result=Array(5).fill(0);
+  for(let i=0;i<indices.length;i++)result[indices[i]]+=upstream[i];
+  assert.deepEqual(result,[1,0,8,0,7]);
+});
+test("tensor source checks excluded row and all four reverse-mapped rows",()=>{
+  assert.match(source,/reverse_gradient_output\[1\] != 0\.0/);
+  for(const pair of [[0,0],[2,1],[3,2],[4,3]]) {
+    const re=new RegExp("reverse_gradient_output\\["+pair[0]+"\\] != saved_input_gradient\\["+pair[1]+"\\]");
+    assert.match(source,re);
+  }
 });
