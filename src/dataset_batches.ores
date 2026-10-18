@@ -52,9 +52,6 @@ pub fnc gather_supervised_batch_f64_checked_into(
      label_output is labels.values; do
     return Err("dataset batch aliases input storage");
   fi
-  if features.values is labels.values; do
-    return Err("dataset feature and target storage share a mutable List");
-  fi
   if validate_tensor(features).is_err() || validate_tensor(labels).is_err(); do
     return Err("invalid aligned dataset tensor");
   fi
