@@ -8,12 +8,13 @@ const within=n=>Number.isSafeInteger(n)&&Math.abs(n)<=10000;
 const ok=value=>Object.freeze({ok:true,value});
 const err=reason=>Object.freeze({ok:false,reason});
 class Stage {
-  constructor(weight=10,step=1,version=1,run=101,inc=1){
-    this.weight=weight;this.step=step;this.version=version;this.run=run;this.incarnation=inc;
+  constructor(weight=10,step=1,version=1,run=101,inc=1,graph=202){
+    this.weight=weight;this.step=step;this.version=version;this.run=run;this.incarnation=inc;this.graph=graph;
     this.forward=new Map();this.gradients=new Map();
   }
-  forwardStep(step,version,id,x,run=this.run,inc=this.incarnation){
+  forwardStep(step,version,id,x,run=this.run,inc=this.incarnation,graph=this.graph){
     if(run!==this.run)return err("STALE_RUN");
+    if(graph!==this.graph)return err("STALE_GRAPH");
     if(inc!==this.incarnation)return err("STALE_INCAR");
     if(version!==this.version)return err("STALE_VERSION");
     if(step!==this.step)return err("STALE_STEP");
@@ -22,8 +23,9 @@ class Stage {
     if(this.forward.has(id))return err("DUPLICATE_FORWARD");
     this.forward.set(id,x);return ok(this.weight*x);
   }
-  backwardStep(step,version,id,u,run=this.run,inc=this.incarnation){
+  backwardStep(step,version,id,u,run=this.run,inc=this.incarnation,graph=this.graph){
     if(run!==this.run)return err("STALE_RUN");
+    if(graph!==this.graph)return err("STALE_GRAPH");
     if(inc!==this.incarnation)return err("STALE_INCAR");
     if(version!==this.version)return err("STALE_VERSION");
     if(step!==this.step)return err("STALE_STEP");
@@ -42,8 +44,9 @@ class Stage {
     const value=this.weight-gradient;
     return within(value)?ok(value):err("UNSAFE_CANDIDATE");
   }
-  commit(step,version,run=this.run,inc=this.incarnation){
+  commit(step,version,run=this.run,inc=this.incarnation,graph=this.graph){
     if(run!==this.run)return err("STALE_RUN");
+    if(graph!==this.graph)return err("STALE_GRAPH");
     if(inc!==this.incarnation)return err("STALE_INCAR");
     if(version!==this.version)return err("STALE_VERSION");
     if(step!==this.step)return err("STALE_STEP");
@@ -51,8 +54,9 @@ class Stage {
     this.weight=p.value;this.step++;this.version++;this.forward.clear();this.gradients.clear();
     return ok(this.weight);
   }
-  cancelRejected(step,version,run=this.run,inc=this.incarnation){
+  cancelRejected(step,version,run=this.run,inc=this.incarnation,graph=this.graph){
     if(run!==this.run)return err("STALE_RUN");
+    if(graph!==this.graph)return err("STALE_GRAPH");
     if(inc!==this.incarnation)return err("STALE_INCAR");
     if(version!==this.version||step!==this.step)return err("STALE_STEP");
     const p=this.candidate();
@@ -189,4 +193,27 @@ test("8192 seeded replay/epoch requests preserve all state",()=>{
     assert.deepEqual(actual,err("STALE_RUN"));
     assert.deepEqual(stage.snapshot(),before);
   }
+});
+
+test("graph mismatch cannot reserve, stage, commit or compensate, even with matching other IDs",()=>{
+  const stage=new Stage(5,2,2,101,3,202),before=stage.snapshot();
+  for(const graph of [0,1,201,203,999]){
+    assert.deepEqual(stage.forwardStep(2,2,1,4,101,3,graph),err("STALE_GRAPH"));
+    assert.deepEqual(stage.backwardStep(2,2,1,4,101,3,graph),err("STALE_GRAPH"));
+    assert.deepEqual(stage.commit(2,2,101,3,graph),err("STALE_GRAPH"));
+    assert.deepEqual(stage.cancelRejected(2,2,101,3,graph),err("STALE_GRAPH"));
+    assert.deepEqual(stage.snapshot(),before);
+  }
+  assert.deepEqual(stage.forwardStep(2,2,1,4,101,3,202),ok(20));
+});
+test("graph and incarnation must both be present on every stateful call",()=>{
+  assert.match(source,/graph_id: int = 202;/);
+  for(const op of ["eval_affine","accumulate","commit","cancel_rejected"]){
+    const signature=source.match(new RegExp("private "+op+"\\([^\\n]*?\\): Result<int, String>"));
+    assert(signature,op+" missing typed signature");
+    assert.match(signature[0],/int expected_graph/);
+    const method=source.slice(source.indexOf("private "+op+"("));
+    assert(method.indexOf('Err("STALE_GRAPH")')>=0,op+" missing graph guard");
+  }
+  assert.match(source,/worker\.send\("wrong_graph"\)/);
 });
