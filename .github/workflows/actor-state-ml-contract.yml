@@ -5,6 +5,7 @@ on:
       - "examples/train_actor_state_scalar.ores"
       - "examples/train_nullable_data_with_autograd.ores"
       - "tests/nullable_data_autograd_contract.test.mjs"
+      - "tests/guest_runner_provenance_contract.test.mjs"
       - "scripts/verify-data-autograd-guest.sh"
       - "tests/actor_state_scalar_contract.test.mjs"
       - "tests/actor_state_negative_manifest.test.mjs"
@@ -27,7 +28,7 @@ jobs:
         with:
           node-version: "22"
       - name: Run source spelling and scalar numerical reference cases
-        run: node --test tests/actor_state_scalar_contract.test.mjs tests/actor_state_negative_manifest.test.mjs tests/nullable_data_autograd_contract.test.mjs
+        run: node --test tests/actor_state_scalar_contract.test.mjs tests/actor_state_negative_manifest.test.mjs tests/nullable_data_autograd_contract.test.mjs tests/guest_runner_provenance_contract.test.mjs
       - name: Syntax check future compiled-guest validator
         run: bash -n scripts/verify-actor-state-guest.sh && bash -n scripts/verify-data-autograd-guest.sh
       - name: Clearly identify evidence boundary
