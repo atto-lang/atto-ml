@@ -162,3 +162,14 @@ test("real-guest verifier pins the exact current CPU fixture Git blob",()=>{
   assert.match(verifier,/supervised CPU guest fixture Git blob changed/);
   assert.match(verifier,/FIXTURE_BLOB=1/);
 });
+
+test("real guest execution has a bounded external watchdog and no timeout bypass",()=>{
+  const verifier=readFileSync(new URL("../scripts/verify-supervised-cpu-guest.sh",import.meta.url),"utf8");
+  assert.match(verifier,/command -v timeout/);
+  assert.match(verifier,/command -v gtimeout/);
+  assert.match(verifier,/ORESLANG_GUEST_TIMEOUT_SECONDS/);
+  assert.match(verifier,/guest timeout exceeds 600-second ceiling/);
+  assert.match(verifier,/\^\[1-9\]\[0-9\]\{0,2\}\$/);
+  assert.match(verifier,/\-k 5s/);
+  assert.match(verifier,/GUEST=FAILED; no pass receipt/);
+});
