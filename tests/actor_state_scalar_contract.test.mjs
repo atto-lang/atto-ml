@@ -83,10 +83,10 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
 test("expected guest-output golden includes orphan and duplicate-forward rejection", () => {
   const golden = readFileSync(new URL("./golden/actor_state_scalar.stdout", import.meta.url),"utf8");
   assert.deepEqual(golden.trim().split(/\r?\n/),
-    ["REJECTED","REJECTED","20","REJECTED","30","REJECTED","2","REJECTED","REJECTED","5","5","2","REJECTED","50000","50000","100000000","200000000","REJECTED","2","3","REJECTED","10","-10","10"]);
+    ["REJECTED","REJECTED","20","REJECTED","30","REJECTED","2","REJECTED","REJECTED","5","5","2","REJECTED","REJECTED","REJECTED","50000","50000","100000000","200000000","REJECTED","2","3","REJECTED","10","-10","10"]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","cancel_failed","stale_after_cancel","new_forward","new_negative_forward","after"]);
+    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","wrong_run","wrong_incarnation","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","stale_after_cancel","new_forward","new_negative_forward","after"]);
 });
 
 
@@ -95,10 +95,12 @@ test("every accumulate invocation has four arguments and matching step/version",
   assert.equal(calls.length,9);
   for(const call of calls) {
     const args=call[1].split(",").map(x=>x.trim());
-    assert.equal(args.length,4);
+    assert.equal(args.length,6);
     assert(["1","2"].includes(args[0]));
     assert.equal(args[0],args[1]);
     assert([1,2].includes(Number(args[2])));
+    assert.equal(args[4],"101");
+    assert.equal(args[5],"1");
   }
   const stale=source.match(/if mail\.value == "stale"; do\s*self\.print_outcome\(self\.accumulate\(([^)]*)\)\)/);
   assert(stale);
@@ -234,4 +236,35 @@ test("a legitimate negative forward result cannot be confused with rejection",()
   assert.equal(output[20],"REJECTED");
   assert.match(source,/self\.eval_affine\(3, 3, 2, -2\)/);
   assert.equal(5*(-2),-10);
+});
+
+
+test("run and incarnation guards precede all scalar mutation and reject wrong epochs",()=>{
+  assert.match(source,/run_id: int = 101/);
+  assert.match(source,/incarnation: int = 1/);
+  for(const method of ["eval_affine","accumulate","commit","cancel_rejected"]){
+    const start=source.indexOf("private "+method+"(");
+    const end=source.indexOf("\n    private ",start+8);
+    const body=source.slice(start,end<0?source.length:end);
+    assert.match(body,/int expected_run, int expected_incarnation/);
+    const run=body.indexOf("s.run_id != expected_run");
+    const inc=body.indexOf("s.incarnation != expected_incarnation");
+    const version=body.indexOf("s.version != expected_version");
+    const mutation=body.search(/s\.(?:issued_first|issued_second|seen_first|seen_second|weight|accumulated_gradient|step|version) =/);
+    assert(run>0&&inc>run&&version>inc,method+" fences before version");
+    assert(mutation<0||mutation>version,method+" mutates only after fences");
+    assert.match(body,/return Err\("STALE_RUN"\)/);
+    assert.match(body,/return Err\("STALE_INCAR"\)/);
+  }
+  assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 100, 1\)/);
+  assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 0\)/);
+});
+test("cancellation is not directly addressable as a string mail command",()=>{
+  const handler=source.slice(source.indexOf("receive(ActorMail<String> mail)"));
+  assert.doesNotMatch(handler,/mail\.value == "cancel_failed"/);
+  assert.doesNotMatch(source,/worker\.send\("cancel_failed"\)/);
+  const decision=handler.slice(handler.indexOf('mail.value == "high_commit"'),handler.indexOf('mail.value == "stale_after_cancel"'));
+  assert.match(decision,/outcome\.is_err\(\)/);
+  assert.match(decision,/self\.cancel_rejected\(2, 2, 101, 1\)/);
+  // This is an internal recovery decision, NOT caller authentication of other commands.
 });
