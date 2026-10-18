@@ -20,8 +20,8 @@ The state RW gate is **not** the same as the actor's native execution-thread lim
 `examples/train_actor_state_scalar.ores` is a deliberately small `int` affine stage:
 
 - Sole `state { weight, version, accumulated_gradient, pending_gradients, step, seen_first, seen_second }`.
-- Forward takes an ephemeral, copied integer weight using `using state.read`, then computes `w*x` **outside** the loan.
-- Each VJP computes `x*upstream` outside the loan, then admits an exclusive `using state.write(critical ...)` update. The callback checks expected step and version; microbatch identities 1 and 2 cannot each be admitted twice.
+- The current scalar actor fixture performs checked integer forward multiplication **inside** a short exclusive `using state.write(critical ...)` callback when recording the forward context. Moving computation outside the loan requires a future immutable, version-pinned snapshot API; this source is not evidence that such a lease is implemented.
+- The scalar VJP currently multiplies the *saved forward input* by the checked upstream integer within an exclusive state callback, then records a deduplicated receipt. Bound checks precede receipt mutation. Production tensor VJPs must compute outside loans on immutable parameter snapshots and revalidate their envelopes during a later critical receipt transaction.
 - An incomplete optimizer step returns a deliberate rejection rather than publishing a partial update. The synchronous step compares version and step inside `self.handle_state(critical write ...)` before updating weight and version together.
 - `self.handle_state(critical read ...)` observes the committed version. An old-version gradient is rejected after commit.
 - The actor is contacted only through inbound messages. No `ActorRef.someMethod()` public RPC.
@@ -31,8 +31,12 @@ The fixture is a **scalar control/gradient bootstrap**, not autograd tape record
 Expected stdout (one value per line):
 
 ```text
+-6
+-8
 20
+-7
 30
+-8
 2
 -4
 -2
@@ -40,6 +44,15 @@ Expected stdout (one value per line):
 5
 2
 -1
+50000
+50000
+100000000
+200000000
+-8
+2
+3
+-1
+10
 10
 ```
 
@@ -117,3 +130,14 @@ The updated guest output exercises malformed initial forward/backward inputs, va
 **Important API limitation:** negative integer status codes are only illustrative. Legitimate computed gradients or predictions can also be negative, so they are not a collision-free production error channel. A production training actor must use a typed `Result` or sum/enum outcome and messages with separate success and error variants. A failed optimizer candidate intentionally remains pending; the application needs a separately authorized cancel/reset/retry protocol instead of silently discarding gradient receipts. This reference does not prove arbitrary-precision arithmetic, LLVM execution, distributed transactional publication, or fully isolated tensor buffers.
 
 The new `tests/actor_state_bounded_numeric_contract.test.mjs` preserves five independent host-only regression cases, including 4096 seeded gradient-bound trials. Together with the updated actor source contract, **17/17 isolated V8 source/numerical cases passed** against current blobs `5a6c8240ea257b0cee14f0d086ab2a14f0b369d3`, `2c533e99b9cb60ab8c859cdb84968f763e6d6005`, and `71efc113c4de7d045a30ceaeea69e34267139a52`. The targeted Java/Graal guest remains **NOT VERIFIED EXECUTED**. No cross-organization private source transfer was made.
+
+
+## Typed scalar API and rejected-step compensation (2026-10-18)
+
+`src/training/scalar_checked_result.ores` now defines a *pure*, caller-owned CPU arithmetic reference with `Result<int, String>` returns for forward, gradient staging, commit candidate, and rejected-step retirement. This avoids interpreting legitimate negative predictions, such as `Ok(-8)`, as integer error statuses. Its string labels are deliberately **not** claimed to be a final nominal `TrainingError` enum; an exhaustive checked enum/sum type is the next compiler-compatibility gate.
+
+`examples/typed_scalar_step_result.ores` is an actual Oreslang guest acceptance target for those Result operations; `scripts/verify-typed-scalar-guest.sh` requires a clean ML Git checkout at a caller-provided exact revision, absolute compiler executable hash, and exact success marker. **No compiled guest run has passed.** Host-only `tests/scalar_checked_result_contract.test.mjs` covers four independent cases, including 4096 seeded integer-domain trials; local isolated execution passed 4/4.
+
+The existing stateful scalar actor fixture now has a **typed `Result<int, String>` compensating method**, `cancel_rejected(expected_step, expected_version)`. It only retires a step after both forward contexts and gradient receipts are present and the optimizer candidate has actually failed its bounded-range guard. It does not publish a weight or optimizer update. Within a short exclusive state write loan, it clears pending microbatch contexts/receipts and advances both step and version together; late gradients for the failed step are rejected by the version fence. Valid candidates **cannot** be discarded through this method and must follow the existing commit path. Production control envelopes additionally require authenticated/authorized caller intent, graph/run/incarnation identity, and explicit retry/cancel policies; the fixed-message test fixture is not an authorization design.
+
+The scalar actor guest golden now has **23 lines**, including rejected optimizer candidate, successful compensating version retirement, stale-message rejection, and a fresh post-retirement forward. Java/Graal PR #1347's test fixture and Git-blob pin were synchronized exactly. The actor's original forward/backward/commit operations still return signed integer status sentinels, so **the P1 typed migration is partial**; it must not be described as full typed-error parity until those methods switch to collision-free results. Same-org Java Actions remain blocked before recorded job steps; numerical host references are not runtime evidence.
