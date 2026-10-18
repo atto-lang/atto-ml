@@ -68,7 +68,7 @@ pub routine main(): void {
   let float first_loss = 0.0;
   let float last_loss = 0.0;
 
-  for int epoch = 0; epoch < 500; epoch++ do
+  for int epoch = 0; epoch < 1000; epoch++ do
     val List<float> sums = arr[0.0, 0.0, 0.0, 0.0];
     let float loss = 0.0;
     for int i = 0; i < 5; i++ do
