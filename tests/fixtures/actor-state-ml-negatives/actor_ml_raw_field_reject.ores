@@ -1,0 +1,4 @@
+define actor BadActor as
+    state { weight: int = 1; }
+    val int second_weight = 2;
+end
