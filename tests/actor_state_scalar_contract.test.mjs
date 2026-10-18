@@ -245,14 +245,12 @@ test("run and incarnation guards precede all scalar mutation and reject wrong ep
   assert.match(source,/run_id: int = 101/);
   assert.match(source,/incarnation: int = 1/);
   assert.match(source,/graph_id: int = 202/);
-  assert.match(source,/graph_id: int = 202/);
   for(const method of ["eval_affine","accumulate","commit","cancel_rejected"]){
     const start=source.indexOf("private "+method+"(");
     const end=source.indexOf("\n    private ",start+8);
     const body=source.slice(start,end<0?source.length:end);
     assert.match(body,/int expected_run, int expected_incarnation, int expected_graph/);
     const run=body.indexOf("s.run_id != expected_run");
-    const graph=body.indexOf("s.graph_id != expected_graph");
     const graph=body.indexOf("s.graph_id != expected_graph");
     const inc=body.indexOf("s.incarnation != expected_incarnation");
     const version=body.indexOf("s.version != expected_version");
@@ -261,12 +259,10 @@ test("run and incarnation guards precede all scalar mutation and reject wrong ep
     assert(mutation<0||mutation>version,method+" mutates only after fences");
     assert.match(body,/return Err\(TrainingError.STALE_RUN\(\)\)/);
     assert.match(body,/return Err\(TrainingError.STALE_GRAPH\(\)\)/);
-    assert.match(body,/return Err\(TrainingError.STALE_GRAPH\(\)\)/);
     assert.match(body,/return Err\(TrainingError.STALE_INCAR\(\)\)/);
   }
   assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 100, 1, 202\)/);
   assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 0, 202\)/);
-  assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 1, 201\)/);
   assert.match(source,/self\.eval_affine\(2, 2, 1, 2, 101, 1, 201\)/);
 });
 test("cancellation is not directly addressable as a string mail command",()=>{
