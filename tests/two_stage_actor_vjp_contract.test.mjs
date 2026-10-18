@@ -185,3 +185,27 @@ test("bootstrap accepted message magnitudes keep integer products inside signed 
     }
   }
 });
+
+
+test("input actor backward uses one version-bound saved-input snapshot",()=>{
+  const first=source.slice(source.indexOf("define actor InputWeight"),
+                           source.indexOf("define transform pipe actor HiddenWeight"));
+  assert.match(first,/const \(saved_x, observed_version, was_issued, was_applied\)/);
+  assert.match(first,/\(s\.saved_input, s\.version, s\.issued, s\.applied\)/);
+  assert.match(first,/if !was_issued \|\| was_applied \|\| observed_version != 1/);
+  assert.match(first,/s\.version != observed_version/);
+  assert.equal((first.match(/using state\.read\(/g)||[]).length,1);
+  assert(first.indexOf("const contribution = saved_x * dy") <
+         first.indexOf("s.weight = s.weight - contribution"));
+});
+test("both trainable stages compare read-snapshot generation at publication",()=>{
+  for(const region of [
+    source.slice(source.indexOf("define actor InputWeight"),
+                 source.indexOf("define transform pipe actor HiddenWeight")),
+    source.slice(source.indexOf("define transform pipe actor HiddenWeight"),
+                 source.indexOf("define actor SquaredLoss"))
+  ]){
+    assert.match(region,/using state\.read\(\|s\| ->/);
+    assert.match(region,/if !s\.issued \|\| s\.applied \|\| s\.version != observed_version/);
+  }
+});
