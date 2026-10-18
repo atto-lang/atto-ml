@@ -84,3 +84,29 @@ test("expected guest-output golden reflects success and rejection receipts", () 
   assert.deepEqual(messages,
     ["forward1","forward2","grad1","duplicate","early","grad2","commit","stale","after"]);
 });
+
+
+test("every accumulate invocation has five arguments and versioned stale rejection",()=>{
+  const calls=[...source.matchAll(/self\.accumulate\(([^)]*)\)/g)];
+  assert.equal(calls.length,4);
+  for(const call of calls) {
+    const args=call[1].split(",").map(x=>x.trim());
+    assert.equal(args.length,5);
+    assert.deepEqual(args.slice(0,3).map(Number),[1,1,
+      call[0].includes("1, 1, 2") ? 2 : 1]);
+  }
+  const stale=source.match(/if mail\.value == "stale"; do\s*stdio\.println\(self\.accumulate\(([^)]*)\)\)/);
+  assert(stale);
+  assert.equal(stale[1].split(",").map(x=>Number(x.trim()))[1],1);
+  assert.match(source,/s\.version != expected_version/);
+});
+test("actor state effects and private helpers cannot be bypassed by handlers",()=>{
+  const helpers=["forward","accumulate","commit","version"];
+  for(const name of helpers) {
+    assert.match(source,new RegExp("\\bprivate "+name+"\\("));
+    assert.doesNotMatch(source,new RegExp("\\bpub "+name+"\\("));
+  }
+  const handler=source.slice(source.indexOf("receive(ActorMail<String> mail)"));
+  assert.doesNotMatch(handler,/\bself\.state\b/);
+  assert.doesNotMatch(handler,/\busing\s+state\.(?:read|write)\b/);
+});
