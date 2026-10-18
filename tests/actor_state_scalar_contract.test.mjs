@@ -86,7 +86,7 @@ test("expected guest-output golden includes orphan and duplicate-forward rejecti
     ["REJECTED","REJECTED","20","REJECTED","30","REJECTED","2","REJECTED","REJECTED","5","5","2","REJECTED","REJECTED","REJECTED","50000","50000","100000000","200000000","REJECTED","2","3","REJECTED","10","-10","10"]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","wrong_run","wrong_incarnation","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","stale_after_cancel","new_forward","new_negative_forward","after"]);
+    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","wrong_run","wrong_incarnation","high_forward1","high_forward2","high_grad1","high_grad2","stale_after_cancel","new_forward","new_negative_forward","after"]);
 });
 
 
@@ -263,7 +263,11 @@ test("cancellation is not directly addressable as a string mail command",()=>{
   const handler=source.slice(source.indexOf("receive(ActorMail<String> mail)"));
   assert.doesNotMatch(handler,/mail\.value == "cancel_failed"/);
   assert.doesNotMatch(source,/worker\.send\("cancel_failed"\)/);
-  const decision=handler.slice(handler.indexOf('mail.value == "high_commit"'),handler.indexOf('mail.value == "stale_after_cancel"'));
+  assert.doesNotMatch(handler,/mail\.value == "high_commit"/);
+  assert.doesNotMatch(source,/worker\.send\("high_commit"\)/);
+  const decision=handler.slice(handler.indexOf('mail.value == "high_grad2"'),handler.indexOf('mail.value == "stale_after_cancel"'));
+  assert.match(decision,/if !final_gradient\.is_err\(\)/);
+  assert.match(decision,/self\.commit\(2, 2, 101, 1\)/);
   assert.match(decision,/outcome\.is_err\(\)/);
   assert.match(decision,/self\.cancel_rejected\(2, 2, 101, 1\)/);
   // This is an internal recovery decision, NOT caller authentication of other commands.
