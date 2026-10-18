@@ -21,6 +21,11 @@ test("with effect bounds are independent from lexical using authority", () => {
   assert.match(source,/commit\([^)]*\): int with state\.read, state\.write/);
   assert.match(source,/self\.handle_state\(critical write \|s\| -> \{/);
   assert.match(source,/version\(\): int with state\.read/);
+  assert.match(source,/s\.step != expected_step/);
+  assert.match(source,/s\.seen_first = true/);
+  assert.match(source,/s\.seen_second = true/);
+  assert.match(source,/return -4;/); // duplicate microbatch
+  assert.match(source,/microbatch != 1 && microbatch != 2/);
   assert.match(source,/self\.handle_state\(critical read \|s\| -> s\.version\)/);
   assert.doesNotMatch(source,/\bfnc\s+\w+\([^)]*\)\s+using\s+state/);
 });
@@ -30,6 +35,9 @@ test("write callback checks weight version and gradient count before publishing"
   const commit=source.slice(start,end);
   const guard=commit.indexOf("s.version != expected_version");
   const full=commit.indexOf("s.pending_gradients != 2");
+  const stepGuard=commit.indexOf("s.step != expected_step");
+  const bothIds=commit.indexOf("!s.seen_first || !s.seen_second");
+  assert(stepGuard > guard && bothIds > full);
   const update=commit.indexOf("s.weight = s.weight - s.accumulated_gradient");
   const bump=commit.indexOf("s.version = s.version + 1");
   assert(guard >= 0 && full > guard && update > full && bump > update);
@@ -43,6 +51,15 @@ test("scalar VJP and versioned update independent oracle", () => {
   assert.deepEqual(contribution,[2,3]);
   const sum=contribution.reduce((a,b)=>a+b,0);
   assert.equal(sum,5);
+  // First microbatch repeated must not be counted twice; incomplete second
+  // microbatch blocks a partial optimizer commit.
+  const seen=new Set();
+  const add=(id,g)=>{if(seen.has(id))return "duplicate";seen.add(id);return g;};
+  assert.equal(add(1,contribution[0]),2);
+  assert.equal(add(1,contribution[0]),"duplicate");
+  assert.equal(seen.size,1);
+  assert.equal(add(2,contribution[1]),3);
+  assert.equal(seen.size,2);
   const next=w-sum;
   assert.equal(next,5);
   assert.equal(version+1,2);
