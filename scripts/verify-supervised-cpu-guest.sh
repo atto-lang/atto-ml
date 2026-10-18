@@ -2,10 +2,33 @@
 # Actual Oreslang guest acceptance, only in an authorized local workspace.
 # Required siblings: oreslang-ml, oreslang-data-science, oreslang-tensor,
 # oreslang-autograd. Does not create/fetch/copy any repository.
-# Usage: ORESLANG_BIN=/absolute/path/to/oreslang bash scripts/verify-supervised-cpu-guest.sh
+# Usage: ORESLANG_BIN=/absolute/path/to/oreslang ORESLANG_BIN_SHA256=<64-hex SHA256> bash scripts/verify-supervised-cpu-guest.sh
 set -euo pipefail
-if [[ -z "${ORESLANG_BIN:-}" || ! -x "${ORESLANG_BIN:-}" ]]; then
+# Hash the compiler executable itself: six source blobs alone do not
+# authenticate the actual runtime used to execute the guest. Do not accept
+# relative paths, missing digests, or unsupported hashing tools.
+if [[ -z "${ORESLANG_BIN:-}" || ! -f "${ORESLANG_BIN:-}" || ! -x "${ORESLANG_BIN:-}" ]]; then
   echo "NOT_EXECUTED: set ORESLANG_BIN to an existing executable" >&2
+  exit 78
+fi
+if [[ "$ORESLANG_BIN" != /* ]]; then
+  echo "NOT_EXECUTED: ORESLANG_BIN must be an absolute path" >&2
+  exit 78
+fi
+if [[ ! "${ORESLANG_BIN_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "NOT_EXECUTED: require a 64-digit ORESLANG_BIN_SHA256 digest" >&2
+  exit 78
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_compiler_digest="$(sha256sum -- "$ORESLANG_BIN" | cut -d ' ' -f1)"
+elif command -v shasum >/dev/null 2>&1; then
+  actual_compiler_digest="$(shasum -a 256 -- "$ORESLANG_BIN" | cut -d ' ' -f1)"
+else
+  echo "NOT_EXECUTED: SHA-256 verification tool not available" >&2
+  exit 78
+fi
+if [[ "${actual_compiler_digest,,}" != "${ORESLANG_BIN_SHA256,,}" ]]; then
+  echo "NOT_EXECUTED: pinned Oreslang executable SHA-256 mismatch" >&2
   exit 78
 fi
 command -v git >/dev/null || { echo "NOT_EXECUTED: git unavailable" >&2; exit 78; }
@@ -51,4 +74,4 @@ if ! cmp -s "$temp/expected" "$temp/actual"; then
   echo "ORESLANG_GUEST=OUTPUT_MISMATCH; no pass receipt" >&2
   exit 1
 fi
-echo "ORESLANG_GUEST=PASS; DEPENDENCY_BLOBS=6; CPU_AUTOGRAD=VERIFIED"
+echo "ORESLANG_GUEST=PASS; COMPILER_SHA256=$actual_compiler_digest; DEPENDENCY_BLOBS=6; CPU_AUTOGRAD=VERIFIED"
