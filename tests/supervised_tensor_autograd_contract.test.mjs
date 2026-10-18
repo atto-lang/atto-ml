@@ -129,6 +129,9 @@ test("no parameter mutation occurs during gradient collection in source",()=>{
 test("real-guest verifier pins six dependency source blobs and fails closed",()=>{
   const verifier=readFileSync(new URL("../scripts/verify-supervised-cpu-guest.sh",import.meta.url),"utf8");
   assert.equal((verifier.match(/^require_blob oreslang-/gm)||[]).length,6);
+  assert.equal((verifier.match(/^require_tree oreslang-/gm)||[]).length,3);
+  assert.match(verifier,/git -C "\$base" rev-parse HEAD/);
+  assert.match(verifier,/status --porcelain --untracked-files=all/);
   assert.match(verifier,/git -C "\$base" hash-object/);
   assert.match(verifier,/ORESLANG_BIN/);
   assert.match(verifier,/ORESLANG_BIN_SHA256/);
