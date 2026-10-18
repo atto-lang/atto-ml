@@ -73,3 +73,12 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
     assert(finite === x*upstream); // signed zero is not a gradient mismatch
   }
 });
+
+test("expected guest-output golden reflects success and rejection receipts", () => {
+  const golden = readFileSync(new URL("./golden/actor_state_scalar.stdout", import.meta.url),"utf8");
+  assert.deepEqual(golden.trim().split(/\r?\n/).map(Number),
+    [20,30,2,-4,-2,5,5,2,-1,10]);
+  const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
+  assert.deepEqual(messages,
+    ["forward1","forward2","grad1","duplicate","early","grad2","commit","stale","after"]);
+});
