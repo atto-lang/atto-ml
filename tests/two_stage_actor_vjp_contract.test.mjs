@@ -154,3 +154,34 @@ test("terminal loss forward dedupe returns before backward message emission",()=
   assert.match(tail,/if !accepted; do\s+return -5/);
   assert(tail.indexOf("if !accepted; do") < tail.indexOf("self.backward(Signal.Gradient(gradient))"));
 });
+
+
+test("all three actor boundaries reject extreme integer messages before arithmetic",()=>{
+  const first=source.slice(source.indexOf("define actor InputWeight"),source.indexOf("define transform pipe actor HiddenWeight"));
+  const middle=source.slice(source.indexOf("define transform pipe actor HiddenWeight"),source.indexOf("define actor SquaredLoss"));
+  const last=source.slice(source.indexOf("define actor SquaredLoss"));
+  for(const [region,variable,bound] of [
+    [first,"x",1000],[first,"dy",4096],[middle,"activation",1000],
+    [middle,"dy",4096],[last,"prediction",1000]
+  ]){
+    const clause="if "+variable+" < -"+bound+" || "+variable+" > "+bound+"; do";
+    assert(region.includes(clause),"missing fail-closed numeric bound: "+clause);
+    const start=region.indexOf("on Signal."+(variable==="dy"?"Gradient":"Data"));
+    const guarded=region.indexOf(clause,start);
+    const firstMath=region.indexOf(variable+" * ",start);
+    if(firstMath>=0) assert(guarded>=0 && guarded<firstMath);
+  }
+});
+test("bootstrap accepted message magnitudes keep integer products inside signed 32-bit",()=>{
+  for(const input of [-1000,0,1000]){
+    const forward=input*3;
+    assert(forward>=-3000&&forward<=3000);
+    for(const upstream of [-4096,0,4096]){
+      const vjp=input*upstream;
+      assert(Number.isSafeInteger(vjp));
+      assert(vjp>=-2147483648&&vjp<=2147483647);
+      assert(Number.isSafeInteger(forward*upstream));
+      assert(forward*upstream>=-2147483648&&forward*upstream<=2147483647);
+    }
+  }
+});
