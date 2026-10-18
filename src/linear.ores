@@ -81,6 +81,9 @@ pub fnc train_affine_step(
   if count_floats(targets) != n; do
     return Err("training target length mismatch");
   fi
+  if weights is biases || weights is inputs || weights is targets || biases is inputs || biases is targets; do
+    return Err("training parameter buffers must not alias inputs or each other");
+  fi
   if count_floats(weights) != 1 || count_floats(biases) != 1; do
     return Err("affine parameter vectors must each contain one scalar");
   fi
