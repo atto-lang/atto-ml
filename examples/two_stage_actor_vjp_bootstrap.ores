@@ -59,10 +59,19 @@ define actor InputWeight<messages=Signals> as
                     return -8;
                 fi
                 // Observe saved context; no state loan crosses an actor send.
-                const saved_x = using state.read(|s| -> s.saved_input);
+                // Observe the activation and its admission/version state in
+                // ONE scoped read. An independent read followed by a later
+                // version check can mix generations under multithreaded actor
+                // execution, even though the exclusive commit will still CAS.
+                const (saved_x, observed_version, was_issued, was_applied) =
+                    using state.read(|s| ->
+                        (s.saved_input, s.version, s.issued, s.applied));
+                if !was_issued || was_applied || observed_version != 1; do
+                    return -1;
+                fi
                 const contribution = saved_x * dy;
                 const result = using state.write(critical |s| -> {
-                    if !s.issued || s.applied || s.version != 1; do
+                    if !s.issued || s.applied || s.version != observed_version; do
                         return -1;
                     fi
                     s.last_gradient = contribution;
