@@ -32,10 +32,10 @@ workspace/
 With an **already available audited Oreslang compiler**:
 
 ```sh
-ORESLANG_BIN=/absolute/path/to/oreslang bash scripts/verify-supervised-cpu-guest.sh
+ORESLANG_BIN=/absolute/path/to/oreslang ORESLANG_BIN_SHA256=<64-hex-digest> bash scripts/verify-supervised-cpu-guest.sh
 ```
 
-The script refuses an absent runtime or sibling source and pins **six actual Git blob identities**, validated with `git hash-object` for the current working files. It does not fetch/checkout/copy source, create a runner, invent a pass, or use GitHub credentials. It calls the real guest program, compares exact stdout and returns nonzero on compile/runtime/output failure. The source-org's current Actions inability to allocate runners is neither a pass nor proof of compiler failure.
+The script refuses an absent runtime or sibling source and requires the **exact Oreslang executable SHA-256** and pins **six actual Git blob identities**, validated with `git hash-object` for the current working files. It does not fetch/checkout/copy source, create a runner, invent a pass, or use GitHub credentials. It calls the real guest program, compares exact stdout and returns nonzero on compile/runtime/output failure. The source-org's current Actions inability to allocate runners is neither a pass nor proof of compiler failure.
 
 The host test `tests/supervised_tensor_autograd_contract.test.mjs` is independent JavaScript numerical validation and syntax/composition inspection only, **not an implementation of Oreslang library APIs**. It should run under Node 22, and its results are labeled HOST_ONLY. An isolated V8 check covered 11 cases at the first reviewed source/test Git blobs; no native guest result is available yet.
 
@@ -68,3 +68,13 @@ With the fixed int example `x=3`, `w0=2`, `w1=3`, target `16`, forward gives `y=
 **Known correctness limitation:** the two trainable actors currently commit locally on gradient receipt, so a crash between downstream and upstream commits can leave inconsistent versions. This fixed, single-sample bootstrap is a control-flow demonstration, NOT a crash-atomic multi-actor optimizer. True training needs prepared candidate weights, a coordinated step manifest, durable recovery/fencing, graph/step/microbatch identifiers on messages, and clean cancellation of all staged candidate states. Do not use the bootstrap as a production optimizer.
 
 Do not equate an isolated JavaScript host simulation with native LLVM/JVM actor or RW-gate execution. The underlying runtime, parser, actor mail delivery and dynamic graph topology need exact-source compiled tests before promotion.
+
+
+## Hardening checkpoint: executor identity and atomic backward read (October 18)
+
+- The compiler verifier now rejects a missing/nonabsolute/nonexecutable Oreslang binary, an absent or malformed SHA-256 pin, mismatched executable bytes, missing dependency worktrees, and any of six mismatched Git blobs **before** running the guest. The binary hash verifies the executable file itself; it is not a guarantee of signatures/trust, dynamically linked dependency identity, or the absence of in-place mutation after verification.
+- The experimental actor pipe's hidden stage now copies `(saved_input, old_weight, version, issued, applied)` under **one logical state.read admission** rather than two independent read loans. This prevents mixed-generation input/weight observations if concurrent actor executions are enabled. Publication uses the observed version as its comparison value. The tuple-form source remains a proposed parser/compiler acceptance target, not proof of executed Oreslang support.
+- Independent source and calculus host checks pass 12/12 for CPU integration and 10/10 for the actor pipe in an isolated JavaScript harness; those checks do not exercise the actual Oreslang interpreter or state lock.
+- A separate **source-free** alternative-org workflow, `sagitta-stack/sagitta-infra` PR #31, [run #39155558378](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155558378), completed 39/39 Node host-only tests at pinned SHA `703f685b28ac1132af59e460a28fb1ad063b1f2f`. The tests include the independently authored interleaving model that demonstrates why split reads are unsafe. Log markers explicitly say Oreslang guest execution and private-tree mirroring did NOT occur.
+
+**Still open:** source-org worker allocation, compiled Java and LLVM tests, numeric guest stdout, compiler-owned immutable tensor leases, actual multi-thread RW gate integration, per-message run/graph/step/actor epoch identity, and distributed commit/recovery.
