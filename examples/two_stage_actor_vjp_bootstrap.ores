@@ -1,0 +1,159 @@
+// EXPERIMENTAL 3-actor forward/backward control-path bootstrap, based on
+// the existing LLVM actor pipe fixture syntax. NOT executed or certified.
+// Integer arithmetic ONLY: the separate supervised CPU trainer proves real
+// tensor/autograd APIs; this one exercises the forward/backward MAILBOX path.
+// The single training sample has x=3, w0=2, w1=3, target=16:
+// y=18; dLoss/dy=4; dW1=24; dW0=36. No tensors or implicit autograd here.
+// Every actor has exactly ONE guest-owned state declaration.
+define enum Signal as
+    Data: int = 1
+    Gradient: int = 2
+end
+define match pattern Signals as
+    Signal.Data
+    Signal.Gradient
+end
+define match pattern ForwardSignal as
+    Signal.Data
+end
+define match pattern BackwardSignal as
+    Signal.Gradient
+end
+
+define actor InputWeight<messages=Signals> as
+    state {
+        weight: int = 2;
+        version: int = 1;
+        saved_input: int = 0;
+        issued: bool = false;
+        applied: bool = false;
+        last_gradient: int = 0;
+    }
+
+    receive(Signals m) with state.read, state.write {
+        do match m over {
+            on Signal.Data as x {
+                // Reserve the forward context under a short exclusive loan.
+                const w = using state.write(critical |s| -> {
+                    s.saved_input = x;
+                    s.issued = true;
+                    return s.weight;
+                });
+                // Arithmetic + actor send occur AFTER write-loan release.
+                self.forward(Signal.Data(x * w));
+            }
+            on Signal.Gradient as dy {
+                // Observe saved context; no state loan crosses an actor send.
+                const saved_x = using state.read(|s| -> s.saved_input);
+                const contribution = saved_x * dy;
+                const result = using state.write(critical |s| -> {
+                    if !s.issued || s.applied || s.version != 1; do
+                        return -1;
+                    fi
+                    s.last_gradient = contribution;
+                    s.weight = s.weight - contribution;
+                    s.version = s.version + 1;
+                    s.applied = true;
+                    s.issued = false;
+                    return contribution;
+                });
+                return result;
+            }
+        }
+        return -2;
+    }
+end
+
+define transform pipe actor HiddenWeight<
+    forward_messages=ForwardSignal,
+    backward_messages=BackwardSignal
+> as
+    state {
+        weight: int = 3;
+        version: int = 1;
+        saved_input: int = 0;
+        issued: bool = false;
+        applied: bool = false;
+        last_gradient: int = 0;
+    }
+
+    receive_forward(ForwardSignal m): void with state.read, state.write {
+        do match m over {
+            on Signal.Data as activation {
+                const w = using state.write(critical |s| -> {
+                    s.saved_input = activation;
+                    s.issued = true;
+                    return s.weight;
+                });
+                self.forward(Signal.Data(activation * w));
+            }
+        }
+        return;
+    }
+
+    receive_backward(BackwardSignal m): void with state.read, state.write {
+        do match m over {
+            on Signal.Gradient as dy {
+                // Snapshot old weight before publishing the optimizer update.
+                const input = using state.read(|s| -> s.saved_input);
+                const old_weight = using state.read(|s| -> s.weight);
+                const upstream = old_weight * dy;
+                const gradient = input * dy;
+                const accepted = using state.write(critical |s| -> {
+                    if !s.issued || s.applied || s.version != 1; do
+                        return false;
+                    fi
+                    s.last_gradient = gradient;
+                    s.weight = s.weight - gradient;
+                    s.version = s.version + 1;
+                    s.applied = true;
+                    s.issued = false;
+                    return true;
+                });
+                if accepted; do
+                    self.backward(Signal.Gradient(upstream));
+                fi
+            }
+        }
+        return;
+    }
+end
+
+define actor SquaredLoss<messages=Signals> as
+    state {
+        target: int = 16;
+        seen_forward: bool = false;
+    }
+    receive(Signals m) with state.read, state.write {
+        do match m over {
+            on Signal.Data as prediction {
+                const target = using state.write(critical |s| -> {
+                    s.seen_forward = true;
+                    return s.target;
+                });
+                // d((prediction-target)^2)/d(prediction)
+                const gradient = 2 * (prediction - target);
+                self.backward(Signal.Gradient(gradient));
+                return gradient;
+            }
+            on Signal.Gradient as unexpected {
+                return -3;
+            }
+        }
+        return -4;
+    }
+end
+
+pub fnc main(): int {
+    const source = spawn InputWeight();
+    const hidden = spawn HiddenWeight();
+    const loss = spawn SquaredLoss();
+    ActorUtils.pipe(source, hidden, loss);
+    source.send(Signal.Data(3));
+    // The backward gradient reaches the first actor: 3 * (3 * 4) = 36.
+    expect_pipeline(source, 36);
+    stop loss;
+    stop hidden;
+    stop source;
+    return 43;
+}
