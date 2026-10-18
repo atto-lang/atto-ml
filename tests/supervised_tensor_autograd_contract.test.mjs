@@ -56,7 +56,7 @@ function scatter(grad,rows,n){
   return out;
 }
 test("source composes actual data, tensor, and autograd modules",()=>{
-  assert.match(source,/compact_supervised_f64_into from "\.\.\/\.\.\/oreslang-data-science\/src\/pipeline\/ml_batch_bridge"/);
+  assert.match(source,/compact_supervised_f64_into, scatter_add_f64_into from "\.\.\/\.\.\/oreslang-data-science\/src\/pipeline\/ml_batch_bridge"/);
   assert.match(source,/matmul_2d_f64_into from "\.\.\/\.\.\/oreslang-tensor\/src\/tensor"/);
   assert.match(source,/forward_checked_into from "\.\.\/\.\.\/oreslang-autograd\/src\/forward_checked"/);
   assert.match(source,/backward_checked_into from "\.\.\/\.\.\/oreslang-autograd\/src\/backward_checked"/);
