@@ -205,3 +205,25 @@ match require actual Java/Graal and LLVM admission plus negative-case diagnostic
 A string mailbox with guessable integer identity fields is **not authenticated**.
 Neither source-org CI eligibility nor cross-org private-source mirror authorization
 is currently established; security incidents #22/#77 remain open. Keep draft.
+
+## Pure scalar nominal error migration (October 18, 2026)
+
+`src/training/scalar_checked_result.ores` now declares a closed, explicitly
+numbered `ScalarTrainingError` enum, and all four pure helpers return
+`Result<int, ScalarTrainingError>`. The standalone guest
+`examples/typed_scalar_step_result.ores` imports that nominal type explicitly
+and checks both success and rejection without integer or string sentinels.
+Every prior receipt, accumulator, overflow, state and retirement rejection
+retains its specific error case and does not mutate actor state.
+
+The pure helper's `ScalarTrainingError` is intentionally **NOT** the actor
+fixture's `TrainingError`. They have different provenance and error domains.
+The nominal type checker must forbid implicit substitution even where cases
+have identical names/tags. Integrating the pure helper with the actor requires
+an explicit, exhaustive mapping or a later compiler-verified shared module.
+
+The local source oracle checks enum spellings/tags and that every return uses
+a nominal variant; it is **host-only**. The imported type, variant constructors,
+type mismatch rejections and real stdout require an authorized exact-source
+Java/GraalVM (then LLVM) compiler run. GitHub Actions source-org admission is
+still blocked, and private-source export restrictions #22/#77 still apply.

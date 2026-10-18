@@ -1,14 +1,34 @@
 // CPU scalar typed-outcome reference. Unlike integer error sentinels, a
 // successful result can be ANY signed integer within the checked bounds
-// without being mistaken for a failure. String error labels are provisional:
-// migrate to a nominal TrainingError enum after compiler guest conformance.
+// without being mistaken for a failure.
+// This is a separate nominal error type for the PURE helper API. It is not
+// interchangeable with the actor fixture's TrainingError (distinct module
+// identity and additional receipt errors). Cross-boundary code must explicitly
+// translate each case, never rely on matching spelling or ordinal numbers.
 // Never use these pure functions to bypass the actor's sole state RW gate.
+//
+// Nominal variants are deliberately closed and wire tags must not be re-used.
+// The enum syntax and imported type are real compiler guest acceptance targets;
+// no host source test can certify their runtime/typechecking behavior.
+define enum ScalarTrainingError as
+    INVALID_INPUT = 1
+    BAD_RECEIPT_COUNT = 2
+    INVALID_GRADIENT = 3
+    INVALID_ACCUMULATOR = 4
+    UNBACKED_ACCUMULATOR = 5
+    ACCUMULATION_BOUNDS = 6
+    INVALID_STATE = 7
+    INCOMPLETE_FANIN = 8
+    COUNTER_EXHAUSTED = 9
+    UNSAFE_CANDIDATE = 10
+    VALID_CANDIDATE_MUST_COMMIT = 11
+end
 fnc bounded(int value): bool {
     return value >= -10000 && value <= 10000;
 }
-pub fnc checked_scalar_forward(int weight, int input): Result<int, String> {
+pub fnc checked_scalar_forward(int weight, int input): Result<int, ScalarTrainingError> {
     if !bounded(weight) || !bounded(input); do
-        return Err("INVALID_INPUT");
+        return Err(ScalarTrainingError.INVALID_INPUT());
     fi
     return Ok(weight * input);
 }
@@ -16,50 +36,50 @@ pub fnc checked_scalar_forward(int weight, int input): Result<int, String> {
 // Caller may publish only after its version/microbatch receipt is verified.
 pub fnc checked_scalar_gradient(
     int saved_input, int upstream, int running_gradient, int receipts
-): Result<int, String> {
+): Result<int, ScalarTrainingError> {
     if receipts < 0 || receipts >= 2; do
-        return Err("BAD_RECEIPT_COUNT");
+        return Err(ScalarTrainingError.BAD_RECEIPT_COUNT());
     fi
     if !bounded(saved_input) || !bounded(upstream); do
-        return Err("INVALID_GRADIENT");
+        return Err(ScalarTrainingError.INVALID_GRADIENT());
     fi
     // Receipt count constrains the attainable accumulated gradient:
     // zero receipts MUST carry zero; one receipt contributes at most 1e8.
     // This does not authenticate the receipt, but rejects impossible local
     // states before producing a candidate for the actor's write loan.
     if running_gradient < -200000000 || running_gradient > 200000000; do
-        return Err("INVALID_ACCUMULATOR");
+        return Err(ScalarTrainingError.INVALID_ACCUMULATOR());
     fi
     if receipts == 0 && running_gradient != 0; do
-        return Err("UNBACKED_ACCUMULATOR");
+        return Err(ScalarTrainingError.UNBACKED_ACCUMULATOR());
     fi
     if receipts == 1
         && (running_gradient < -100000000 || running_gradient > 100000000); do
-        return Err("UNBACKED_ACCUMULATOR");
+        return Err(ScalarTrainingError.UNBACKED_ACCUMULATOR());
     fi
     val int candidate = running_gradient + (saved_input * upstream);
     if candidate < -200000000 || candidate > 200000000; do
-        return Err("ACCUMULATION_BOUNDS");
+        return Err(ScalarTrainingError.ACCUMULATION_BOUNDS());
     fi
     return Ok(candidate);
 }
 pub fnc checked_scalar_candidate(
     int weight, int gradient, int receipts, int version, int step
-): Result<int, String> {
+): Result<int, ScalarTrainingError> {
     if !bounded(weight)
         || gradient < -200000000 || gradient > 200000000; do
-        return Err("INVALID_STATE");
+        return Err(ScalarTrainingError.INVALID_STATE());
     fi
     if receipts != 2; do
-        return Err("INCOMPLETE_FANIN");
+        return Err(ScalarTrainingError.INCOMPLETE_FANIN());
     fi
     if version < 1 || step < 1
         || version >= 1000000 || step >= 1000000; do
-        return Err("COUNTER_EXHAUSTED");
+        return Err(ScalarTrainingError.COUNTER_EXHAUSTED());
     fi
     val int proposed = weight - gradient;
     if !bounded(proposed); do
-        return Err("UNSAFE_CANDIDATE");
+        return Err(ScalarTrainingError.UNSAFE_CANDIDATE());
     fi
     return Ok(proposed);
 }
@@ -69,21 +89,21 @@ pub fnc checked_scalar_candidate(
 // advance both step/version and preserve committed weight in one transaction.
 pub fnc checked_scalar_retirement(
     int weight, int gradient, int receipts, int version, int step
-): Result<int, String> {
+): Result<int, ScalarTrainingError> {
     if receipts != 2; do
-        return Err("INCOMPLETE_FANIN");
+        return Err(ScalarTrainingError.INCOMPLETE_FANIN());
     fi
     if !bounded(weight)
         || gradient < -200000000 || gradient > 200000000; do
-        return Err("INVALID_STATE");
+        return Err(ScalarTrainingError.INVALID_STATE());
     fi
     if version < 1 || step < 1
         || version >= 1000000 || step >= 1000000; do
-        return Err("COUNTER_EXHAUSTED");
+        return Err(ScalarTrainingError.COUNTER_EXHAUSTED());
     fi
     val int proposed = weight - gradient;
     if bounded(proposed); do
-        return Err("VALID_CANDIDATE_MUST_COMMIT");
+        return Err(ScalarTrainingError.VALID_CANDIDATE_MUST_COMMIT());
     fi
     return Ok(version + 1);
 }
