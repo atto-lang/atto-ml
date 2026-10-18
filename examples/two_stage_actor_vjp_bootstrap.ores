@@ -34,13 +34,20 @@ define actor InputWeight<messages=Signals> as
         do match m over {
             on Signal.Data as x {
                 // Reserve the forward context under a short exclusive loan.
-                const w = using state.write(critical |s| -> {
+                const (accepted, w) = using state.write(critical |s| -> {
+                    // A duplicate/late forward must never overwrite the
+                    // saved activation or emit a second downstream message.
+                    if s.issued || s.applied || s.version != 1; do
+                        return (false, 0);
+                    fi
                     s.saved_input = x;
                     s.issued = true;
-                    return s.weight;
+                    return (true, s.weight);
                 });
-                // Arithmetic + actor send occur AFTER write-loan release.
-                self.forward(Signal.Data(x * w));
+                // The mailbox send is outside the exclusive loan.
+                if accepted; do
+                    self.forward(Signal.Data(x * w));
+                fi
             }
             on Signal.Gradient as dy {
                 // Observe saved context; no state loan crosses an actor send.
@@ -80,12 +87,17 @@ define transform pipe actor HiddenWeight<
     receive_forward(ForwardSignal m): void with state.read, state.write {
         do match m over {
             on Signal.Data as activation {
-                const w = using state.write(critical |s| -> {
+                const (accepted, w) = using state.write(critical |s| -> {
+                    if s.issued || s.applied || s.version != 1; do
+                        return (false, 0);
+                    fi
                     s.saved_input = activation;
                     s.issued = true;
-                    return s.weight;
+                    return (true, s.weight);
                 });
-                self.forward(Signal.Data(activation * w));
+                if accepted; do
+                    self.forward(Signal.Data(activation * w));
+                fi
             }
         }
         return;
@@ -134,10 +146,16 @@ define actor SquaredLoss<messages=Signals> as
     receive(Signals m) with state.read, state.write {
         do match m over {
             on Signal.Data as prediction {
-                const target = using state.write(critical |s| -> {
+                const (accepted, target) = using state.write(critical |s| -> {
+                    if s.seen_forward; do
+                        return (false, 0);
+                    fi
                     s.seen_forward = true;
-                    return s.target;
+                    return (true, s.target);
                 });
+                if !accepted; do
+                    return -5;
+                fi
                 // d((prediction-target)^2)/d(prediction)
                 const gradient = 2 * (prediction - target);
                 self.backward(Signal.Gradient(gradient));
