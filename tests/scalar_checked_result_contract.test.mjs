@@ -11,7 +11,7 @@ test("forward result separates legitimate negative success from failure",()=>{
   assert.equal(bounded(value),true);
   assert.equal(bounded(10001),false);
   assert.match(source,/Result<int, ScalarTrainingError>/);
-  assert.doesNotMatch(source,/Result<int, String>|Err\\("/);
+  assert.doesNotMatch(source,/Result<int, String>|Err\("/);
   assert.match(guest,/import type ScalarTrainingError from/);
   assert.match(guest,/Result<int, ScalarTrainingError>/);
   assert.match(guest,/negative_success\.unwrap\(\) != -8/);
@@ -26,8 +26,8 @@ test("all four typed operations return errors separately from values",()=>{
 });
 test("full gradient fan-in is mandatory before candidate or retirement",()=>{
   assert.match(source,/if receipts != 2/);
-  assert.match(source,/return Err\("INCOMPLETE_FANIN"\)/);
-  assert.match(source,/return Err\("VALID_CANDIDATE_MUST_COMMIT"\)/);
+  assert.match(source,/return Err\(ScalarTrainingError\.INCOMPLETE_FANIN\(\)\)/);
+  assert.match(source,/return Err\(ScalarTrainingError\.VALID_CANDIDATE_MUST_COMMIT\(\)\)/);
   assert.match(source,/return Ok\(version \+ 1\)/);
 });
 test("4096 seeded numeric cases stay inside the scalar safe domain",()=>{
@@ -46,7 +46,7 @@ test("4096 seeded numeric cases stay inside the scalar safe domain",()=>{
 
 test("zero receipts require zero gradient and one receipt caps first contribution",()=>{
   assert.match(source,/if receipts == 0 && running_gradient != 0/);
-  assert.match(source,/return Err\("UNBACKED_ACCUMULATOR"\)/);
+  assert.match(source,/return Err\(ScalarTrainingError\.UNBACKED_ACCUMULATOR\(\)\)/);
   assert.match(source,/if receipts == 1/);
   assert.match(source,/running_gradient < -100000000 \|\| running_gradient > 100000000/);
   assert.match(guest,/checked_scalar_gradient\(1, 1, 1, 0\)\.is_err\(\)/);
@@ -69,19 +69,19 @@ test("receipt-admissibility boundaries are mathematically complete for one contr
 
 test("all pure helpers return a single closed nominal error domain",()=>{
   const expected=["INVALID_INPUT","BAD_RECEIPT_COUNT","INVALID_GRADIENT","INVALID_ACCUMULATOR","UNBACKED_ACCUMULATOR","ACCUMULATION_BOUNDS","INVALID_STATE","INCOMPLETE_FANIN","COUNTER_EXHAUSTED","UNSAFE_CANDIDATE","VALID_CANDIDATE_MUST_COMMIT"];
-  const body=source.match(/define enum ScalarTrainingError as\\n([\\s\\S]*?)\\nend/);
+  const body=source.match(/define enum ScalarTrainingError as\n([\s\S]*?)\nend/);
   assert(body,"missing nominal pure helper enum");
-  const declared=[...body[1].matchAll(/^\\s+([A-Z_]+) = (\\d+)$/gm)];
+  const declared=[...body[1].matchAll(/^\s+([A-Z_]+) = (\d+)$/gm)];
   assert.deepEqual(declared.map(m=>m[1]),expected);
   assert.deepEqual(declared.map(m=>Number(m[2])),expected.map((_,i)=>i+1));
-  const used=[...source.matchAll(/Err\\(ScalarTrainingError\\.([A-Z_]+)\\(\\)\\)/g)]
+  const used=[...source.matchAll(/Err\(ScalarTrainingError\.([A-Z_]+)\(\)\)/g)]
     .map(m=>m[1]);
   assert(used.length>=11);
   assert(used.every(v=>expected.includes(v)));
   for(const op of ["checked_scalar_forward","checked_scalar_gradient",
       "checked_scalar_candidate","checked_scalar_retirement"]) {
-    assert.match(source,new RegExp("pub fnc "+op+"\\\\([\\\\s\\\\S]*?\\\\): Result<int, ScalarTrainingError>"));
+    assert.match(source,new RegExp("pub fnc "+op+"\\([\\s\\S]*?\\): Result<int, ScalarTrainingError>"));
   }
-  assert.doesNotMatch(source,/Err\\("|Result<int, String>/);
+  assert.doesNotMatch(source,/Err\("|Result<int, String>/);
   assert.doesNotMatch(guest,/Result<int, String>/);
 });
