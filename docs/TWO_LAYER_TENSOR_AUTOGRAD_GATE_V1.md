@@ -52,3 +52,12 @@ No compiler is downloaded or built by the gate. The binary checksum does **not**
 `tests/nullable_two_layer_autograd_contract.test.mjs` exercises independent host-only 13-node tape semantics, all parameter/input finite differences, nullable row provenance, fixed SGD convergence, ReLU dead regions, duplicate-index gradient accumulation and atomic optimizer candidate validation. `tests/two_layer_runner_provenance_contract.test.mjs` tests the fail-closed runner source/snapshot checks. Passing these **does not** prove Oreslang guest compilation.
 
 An independent funded source-free GitHub Actions workflow in `sagitta-stack/sagitta-infra` passed 31 synthetic mathematical/protocol cases on run [39154221794](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39154221794), pinned at carrier commit `cca946b0402de65717db3f670b1bb4d4903c63d1`. It explicitly copied no Oreslang source and cannot certify the private Oreslang runtime. Source-org Actions and real guest compilation remain independently blocked/unverified. Open security incidents `oreslang-platform-conformance` #22 and #77 prohibit new cross-org private source mirrors until separately authorized.
+
+
+## Nullable-to-tensor hardening
+
+The first integration example materialized `TensorF64([5,1], feature.values)` directly from the original `FloatColumn`. That was insufficient: nullable or feature-valid-but-target-null slots are permitted to contain NaN/Infinity placeholders, whereas `validate_tensor` rejects **any** nonfinite backing value, including excluded rows. It also unintentionally exposed the unused raw payload to the tensor domain.
+
+The reference now constructs a finite zero-filled `projected_values` buffer, then writes **only the jointly valid and already numerically checked** `x[j]` values at their original `row_ids[j]` positions before building the tensor. Row gather reconstructs the dense batch, and saved-forward VJP scatters back onto original source row IDs. Masked rows remain zero with zero gradient. The copy is deliberate: it does not claim zero-copy Arrow access, raw-source value equality on excluded rows, or a frozen/immutable tensor lease.
+
+Two new isolated host-only cases include invalid NaN/Infinity raw column placeholders and feature-valid/target-null rows; **17/17** current two-layer source/numerical cases passed against fixture Git blob `0208e749cc7e660ad2e22cf76327a1e0301357e8` and test blob `3a5ea082c3a1e560e09a583f7be1743be849ad0f`. Actual Oreslang source compilation and the Java/LLVM guests remain **NOT_EXECUTED**.
