@@ -95,12 +95,19 @@ define transform pipe actor HiddenWeight<
         do match m over {
             on Signal.Gradient as dy {
                 // Snapshot old weight before publishing the optimizer update.
-                const input = using state.read(|s| -> s.saved_input);
-                const old_weight = using state.read(|s| -> s.weight);
+                // Take one atomic, primitive-valued read snapshot. Separate
+                // read permits would permit mixed-version observations if
+                // actor execution is configured for multiple carrier threads.
+                const (input, old_weight, observed_version, was_issued, was_applied) =
+                    using state.read(|s| ->
+                        (s.saved_input, s.weight, s.version, s.issued, s.applied));
+                if !was_issued || was_applied || observed_version != 1; do
+                    return;
+                fi
                 const upstream = old_weight * dy;
                 const gradient = input * dy;
                 const accepted = using state.write(critical |s| -> {
-                    if !s.issued || s.applied || s.version != 1; do
+                    if !s.issued || s.applied || s.version != observed_version; do
                         return false;
                     fi
                     s.last_gradient = gradient;
