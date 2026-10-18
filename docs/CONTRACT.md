@@ -8,10 +8,19 @@ TensorFlow/PyTorch implementation is called.
 four-example batch and requires MSE < 1e-6 after 500 full-batch SGD steps.
 It also checks shape errors leave parameters and outputs unchanged.
 
-**Boundary:** This is a **manual analytic-gradient baseline**, not
-autograd-backed neural-network training or a `Tensor<T>` model. It proves
-the training-loop numerical contract and provides independent reference behavior
-for the future `oreslang-tensor` + `oreslang-autograd` integration.
+The independent sibling-workspace examples now include:
+- `examples/train_with_autograd.ores`: scalar reverse-mode training for an affine model.
+- `examples/train_two_layer_autograd.ores`: scalar `Linear -> ReLU -> Linear` MLP,
+  five fixed samples, 500 SGD epochs and MSE < 1e-6 target. The reference
+  numerical oracle converges from MSE 3.2 to about 3.75e-7.
+- `scripts/test-workspace.sh` requires a real Oreslang binary and sibling
+  checkout; both example programs must finish successfully.
+
+**Boundary:** `src/linear.ores` remains an independent analytic-gradient
+baseline, while the two new examples are **scalar-autograd** training. Neither
+is a generic `Tensor<T>` model nor evidence of source compiler execution.
+The generic tensor-backed `Module/Linear/Sequential` and optimizer architecture
+remains an explicit separate release gate.
 
 Pending dependencies:
 1. Compiler-supported unique/frozen tensor buffers, checkable view lifetimes.
