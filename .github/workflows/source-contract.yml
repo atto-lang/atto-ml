@@ -1,0 +1,15 @@
+name: Source contract (not compiler proof)
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          test -s src/linear.ores
+          test -s tests/smoke.ores
+          sh -n scripts/test.sh
+          if sh scripts/test.sh; then exit 1; fi
+          echo "UNCONFIGURED compiler: guest conformance was NOT executed"

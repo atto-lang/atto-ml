@@ -1,0 +1,110 @@
+// Pure Oreslang eager CPU reference. The P0 model is a one-feature/one-output
+// affine layer y = w*x+b. It is intentionally small enough to prove an
+// end-to-end numerical training path before general tensor/autograd wiring.
+fnc count_floats(List<float> values): int {
+  let int n = 0;
+  for const value of values do
+    n = n + 1;
+  done
+  return n;
+}
+
+pub fnc affine_batch_into(
+  List<float> inputs,
+  float weight,
+  float bias,
+  List<float> mut outputs
+): Result<bool, String> {
+  val int n = count_floats(inputs);
+  if count_floats(outputs) != n; do
+    return Err("affine output length mismatch");
+  fi
+  for int i = 0; i < n; i++ do
+    outputs[i] = (inputs[i] * weight) + bias;
+  done
+  return Ok(true);
+}
+
+pub fnc mse_loss(
+  List<float> predictions,
+  List<float> targets
+): Result<float, String> {
+  val int n = count_floats(predictions);
+  if n == 0; do
+    return Err("mse requires a nonempty batch");
+  fi
+  if count_floats(targets) != n; do
+    return Err("mse target length mismatch");
+  fi
+  let float total = 0.0;
+  for int i = 0; i < n; i++ do
+    val float difference = predictions[i] - targets[i];
+    total = total + (difference * difference);
+  done
+  return Ok(total / n);
+}
+
+// Reference gradient for one-dimensional affine + mean squared error.
+// Generic reverse-mode integration is a separate P0 dependency on autograd.
+pub fnc train_affine_step(
+  List<float> inputs,
+  List<float> targets,
+  List<float> mut weights,
+  List<float> mut biases,
+  float learning_rate
+): Result<float, String> {
+  val int n = count_floats(inputs);
+  if n == 0; do
+    return Err("training batch must not be empty");
+  fi
+  if count_floats(targets) != n; do
+    return Err("training target length mismatch");
+  fi
+  if count_floats(weights) != 1 || count_floats(biases) != 1; do
+    return Err("affine parameter vectors must each contain one scalar");
+  fi
+  if learning_rate <= 0.0; do
+    return Err("learning rate must be positive");
+  fi
+  if (learning_rate - learning_rate) != 0.0; do
+    return Err("learning rate must be finite");
+  fi
+
+  val float weight = weights[0];
+  val float bias = biases[0];
+  let float loss = 0.0;
+  let float gradient_w = 0.0;
+  let float gradient_b = 0.0;
+  for int i = 0; i < n; i++ do
+    val float error = ((weight * inputs[i]) + bias) - targets[i];
+    loss = loss + (error * error);
+    gradient_w = gradient_w + (error * inputs[i]);
+    gradient_b = gradient_b + error;
+  done
+  val float scale = 2.0 / n;
+  weights[0] = weight - (learning_rate * scale * gradient_w);
+  biases[0] = bias - (learning_rate * scale * gradient_b);
+  return Ok(loss / n);
+}
+
+// Simple parameter SGD for future generic model parameters.
+pub fnc sgd_step_into(
+  List<float> mut parameters,
+  List<float> gradients,
+  float learning_rate
+): Result<bool, String> {
+  val int n = count_floats(parameters);
+  if count_floats(gradients) != n; do
+    return Err("sgd gradient length mismatch");
+  fi
+  if learning_rate <= 0.0; do
+    return Err("sgd learning rate must be positive");
+  fi
+  if (learning_rate - learning_rate) != 0.0; do
+    return Err("sgd learning rate must be finite");
+  fi
+  for int i = 0; i < n; i++ do
+    parameters[i] = parameters[i] - (learning_rate * gradients[i]);
+  done
+  return Ok(true);
+}

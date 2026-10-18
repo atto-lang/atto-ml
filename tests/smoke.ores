@@ -1,0 +1,39 @@
+import module Assert from "std/assert";
+import fnc affine_batch_into, mse_loss, train_affine_step, sgd_step_into from "../src/linear";
+
+pub routine main(): void {
+  val List<float> input = arr[0.0, 1.0, 2.0, 3.0];
+  val List<float> target = arr[1.0, 3.0, 5.0, 7.0];
+  val List<float> weights = arr[0.0];
+  val List<float> biases = arr[0.0];
+
+  // Validate before mutation, including malformed target length.
+  Assert.true_throws(
+    train_affine_step(input, arr[1.0], weights, biases, 0.05).is_err()
+  );
+  Assert.equal_throws(weights[0], 0.0);
+  Assert.equal_throws(biases[0], 0.0);
+
+  for int step = 0; step < 500; step++ do
+    Assert.true_throws(
+      train_affine_step(input, target, weights, biases, 0.05).is_ok()
+    );
+  done
+  val List<float> predicted = arr[0.0, 0.0, 0.0, 0.0];
+  Assert.true_throws(affine_batch_into(input, weights[0], biases[0], predicted).is_ok());
+  val Result<float, String> loss = mse_loss(predicted, target);
+  Assert.true_throws(loss.is_ok());
+  Assert.true_throws(loss.unwrap() < 0.000001);
+  Assert.true_throws(weights[0] > 1.99 && weights[0] < 2.01);
+  Assert.true_throws(biases[0] > 0.99 && biases[0] < 1.01);
+
+  val List<float> params = arr[5.0];
+  Assert.true_throws(sgd_step_into(params, arr[2.0], 0.5).is_ok());
+  Assert.equal_throws(params[0], 4.0);
+
+  val List<float> untouched = arr[10.0];
+  Assert.true_throws(sgd_step_into(untouched, arr[], 0.5).is_err());
+  Assert.equal_throws(untouched[0], 10.0);
+  stdio.println("ORES_ML_TRAINING_SMOKE_PASS");
+  return;
+}
