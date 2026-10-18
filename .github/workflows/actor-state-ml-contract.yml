@@ -1,0 +1,24 @@
+name: Proposed scalar actor ML state contract (host-only)
+on:
+  pull_request:
+    paths:
+      - "examples/train_actor_state_scalar.ores"
+      - "tests/actor_state_scalar_contract.test.mjs"
+      - "docs/ACTOR_STATE_TRAINING_MILESTONE.md"
+      - ".github/workflows/actor-state-ml-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run source spelling and scalar numerical reference cases
+        run: node --test tests/actor_state_scalar_contract.test.mjs
+      - name: Clearly identify evidence boundary
+        run: echo "HOST_ONLY; ORESLANG_GUEST_EXECUTION=NOT_EXECUTED; STATE_LOCK_INTEGRATION=NOT_EXECUTED"
