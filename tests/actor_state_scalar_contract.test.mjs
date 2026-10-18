@@ -11,12 +11,13 @@ test("single state schema; no actor field storage or self.state bypass", () => {
   assert.equal((source.match(/\bstate\s*\{/g)||[]).length,1);
   assert.doesNotMatch(source.replace(/\/\/[^\n]*/g,""),/\bself\.state\b/);
   assert.doesNotMatch(source,/^\s*(val|let)\s+(?:Tensor|Linear|Optimizer|Gradient)\s+/m);
-  assert.doesNotMatch(source,/^\s*pub\s+(?:forward|accumulate|commit|version)\(/m);
-  assert.match(source,/^\s*private forward\(/m);
+  assert.doesNotMatch(source,/^\s*pub\s+(?:eval_affine|accumulate|commit|version)\(/m);
+  assert.match(source,/^\s*private eval_affine\(/m);
+  assert.doesNotMatch(source,/\b(?:private|pub)\s+(?:forward|backward|send|reply)\(/);
 });
 
 test("with effect bounds are independent from lexical using authority", () => {
-  assert.match(source,/forward\(int x\): int with state\.read/);
+  assert.match(source,/eval_affine\(int x\): int with state\.read/);
   assert.match(source,/using state\.read\(\|s\| -> s\.weight\)/);
   assert.match(source,/accumulate\([^)]*\): int\s+with state\.read, state\.write/);
   assert.match(source,/using state\.write\(critical \|s\| -> \{/);
