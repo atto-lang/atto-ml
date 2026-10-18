@@ -179,7 +179,7 @@ define actor VersionedScalarStage as
         });
     }
 
-    // Internal-only controlled recovery for a step whose full gradient fan-in
+    // A controlled recovery path (internal-only) for a step whose full gradient fan-in
     // exists but whose optimizer candidate is outside the bounded domain.
     // This is NOT a successful optimizer commit: committed weight is unchanged.
     // Bumping both fences retires all pending/late messages for the failed step.
