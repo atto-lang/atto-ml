@@ -1,0 +1,35 @@
+name: Aligned dataset tensor minibatch oracle (host-only)
+on:
+  pull_request:
+    paths:
+      - "src/dataset_batches.ores"
+      - "examples/train_aligned_dataset.ores"
+      - "tests/dataset_batch_contract.test.mjs"
+      - "docs/ALIGNED_DATASET_TENSOR_PIPELINES_V1.md"
+      - "scripts/test-workspace.sh"
+      - ".github/workflows/dataset-batch-host-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reference-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Deterministic paired dataset numeric + negative oracles
+        run: node --test tests/dataset_batch_contract.test.mjs
+      - name: Ensure actual source guest runner fails closed without configuration
+        run: |
+          set -eu
+          sh -n scripts/test-workspace.sh
+          set +e
+          env -u ORESLANG_BIN sh scripts/test-workspace.sh
+          status=$?
+          set -e
+          test "$status" -eq 78
+      - name: State evidence boundary
+        run: echo "HOST_ONLY; ORESLANG_GUEST_EXECUTION=NOT_EXECUTED; TensorArrays=REFERENCE_LIST_F64"
