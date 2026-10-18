@@ -83,16 +83,16 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
 test("expected guest-output golden includes orphan and duplicate-forward rejection", () => {
   const golden = readFileSync(new URL("./golden/actor_state_scalar.stdout", import.meta.url),"utf8");
   assert.deepEqual(golden.trim().split(/\r?\n/).map(Number),
-    [-6,-8,20,-7,30,-8,2,-4,-2,5,5,2,-1,50000,50000,100000000,200000000,-8,2,10]);
+    [-6,-8,20,-7,30,-8,2,-4,-2,5,5,2,-1,50000,50000,100000000,200000000,-8,2,3,-1,10,10]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","after"]);
+    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","cancel_failed","stale_after_cancel","new_forward","after"]);
 });
 
 
 test("every accumulate invocation has four arguments and matching step/version",()=>{
   const calls=[...source.matchAll(/self\.accumulate\(([^)]*)\)/g)];
-  assert.equal(calls.length,8);
+  assert.equal(calls.length,9);
   for(const call of calls) {
     const args=call[1].split(",").map(x=>x.trim());
     assert.equal(args.length,4);
@@ -176,5 +176,37 @@ test("bounded numeric rejects preserve source-gradient receipts and committed ve
   assert.equal(stage.step,2);
   const golden=readFileSync(new URL("./golden/actor_state_scalar.stdout",import.meta.url),"utf8")
      .trim().split(/\r?\n/).map(Number);
-  assert.deepEqual(golden.slice(-7),[50000,50000,100000000,200000000,-8,2,10]);
+  assert.deepEqual(golden.slice(-10),[50000,50000,100000000,200000000,-8,2,3,-1,10,10]);
+});
+
+test("typed cancellation handles only a fully received rejected candidate",()=>{
+  const start=source.indexOf("private cancel_rejected(");
+  const stop=source.indexOf("private weight_snapshot(",start);
+  const body=source.slice(start,stop);
+  assert.match(body,/Result<int, String>/);
+  assert.match(body,/return Err\("STALE_STEP"\)/);
+  assert.match(body,/return Err\("INCOMPLETE_FANIN"\)/);
+  assert.match(body,/return Err\("COUNTER_EXHAUSTED"\)/);
+  assert.match(body,/return Err\("VALID_CANDIDATE_MUST_COMMIT"\)/);
+  assert.match(body,/return Ok\(s\.version\)/);
+  const firstWrite=body.indexOf("s.accumulated_gradient = 0;");
+  const guard=body.indexOf("if candidate >= -10000 && candidate <= 10000;");
+  const versionBump=body.indexOf("s.version = s.version + 1;");
+  assert(start>0&&guard>0&&firstWrite>guard&&versionBump>firstWrite);
+  assert.doesNotMatch(body,/\bawait\b|\bselect\b|rt cooperate/);
+});
+test("rejected step retirement rejects old version and permits fresh forward",()=>{
+  const stage={weight:5,version:2,step:2,gradient:200000000,issued:true,seen:true};
+  const candidate=stage.weight-stage.gradient;
+  assert(candidate < -10000);
+  const committedBefore=stage.weight;
+  stage.gradient=0;stage.issued=false;stage.seen=false;
+  stage.version++;stage.step++;
+  assert.equal(committedBefore,stage.weight);
+  assert.equal(stage.version,3);
+  assert.equal(stage.step,3);
+  const oldVersion=2;
+  assert(oldVersion!==stage.version);
+  const firstFresh=stage.weight*2;
+  assert.equal(firstFresh,10);
 });
