@@ -87,3 +87,16 @@ The experimental `InputWeight` and `HiddenWeight` actors now reject repeated for
 The CPU guest verifier now has `tests/supervised_cpu_guest_guard.test.mjs`, a Node host subprocess test using a fake local executable. It must reject nonexistent, relative, nonexecutable, unpinned, malformed-hash and hash-mismatched compiler paths **before** the fake executable can run. The test has been added to the source-owned host-only workflow; until a real job allocates a runner, this **subprocess test is not verified executed**.
 
 Current independent source/host model checks cover 12 CPU and 12 actor cases via an isolated V8 harness, but do not establish guest runtime safety or actual multi-threaded reader/writer scheduling. The separate source-free alternate-org runner's latest audited [Actions #39155558378](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155558378) provides real Node 22 evidence for 39 synthetic cases, explicitly not Oreslang source.
+
+
+## Exact source-tree admission and updated CI evidence
+
+The verifier now checks three **specific dependency Git commit heads** and clean working trees before checking the six imported library blobs:
+
+- `oreslang-data-science`: `3d9d273a8fd705c321d60d281bd4ced88afb55b6`
+- `oreslang-tensor`: `e0c2aec1a050f30d06b359f4662adf5f5604bbe6`
+- `oreslang-autograd`: `455fd9ffb403bb25614103ce6a101cba43e63c2c`
+
+The source heads are **immutable test pins**, not a claim they are the latest feature branches forever. An operator must use those exact reviewed commits in checked-out sibling repositories; changed branches require renewed compatibility review and intentional pin updates. The verifier also demands `ORESLANG_BIN_SHA256` for the executable, and tests the six expected library blob SHA-1 identities. This prevents an apparently identical small set of imported files from silently masking a different tracked dependency revision. The working-tree check rejects tracked changes and untracked files reported by Git; ignored/build/runtime dependencies still need separate reproducibility guarantees.
+
+A new real Node subprocess denial-test suite is committed under `tests/supervised_cpu_guest_guard.test.mjs` but **not executed in successful source-org Actions**. Source-org [run #39156081484](https://github.com/ores-truffle-oreslang/oreslang-ml/actions/runs/39156081484) failed with no step evidence, so neither its Node tests nor Oreslang guest code is certified. The independently authored alternative-org [source-free run #39155779350](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155779350) instead completed **40/40** host mathematical/protocol tests at its own head SHA `aa026e01b9479694906817b570f250edb09bd550`. Its logs explicitly confirm no private Oreslang source mirror or guest execution. Separate budgets are useful for model/oracle tests, but cannot override source-export policy.
