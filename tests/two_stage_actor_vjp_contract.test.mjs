@@ -134,3 +134,23 @@ test("mixed read generations are rejected, whereas atomic snapshots are consiste
   assert.notDeepEqual(inconsistent,older);
   assert.notDeepEqual(inconsistent,newer);
 });
+
+
+test("each trainable stage rejects duplicate forwards before mutating state",()=>{
+  const first=source.slice(source.indexOf("define actor InputWeight"),source.indexOf("define transform pipe actor HiddenWeight"));
+  const second=source.slice(source.indexOf("define transform pipe actor HiddenWeight"),source.indexOf("define actor SquaredLoss"));
+  for(const region of [first,second]){
+    assert.match(region,/const \(accepted, w\) = using state\.write\(critical/);
+    assert.match(region,/if s\.issued \|\| s\.applied \|\| s\.version != 1/);
+    assert.match(region,/return \(false, 0\)/);
+    assert.match(region,/return \(true, s\.weight\)/);
+    assert.match(region,/if accepted; do\s+self\.forward\(Signal\.Data/);
+  }
+});
+test("terminal loss forward dedupe returns before backward message emission",()=>{
+  const tail=source.slice(source.indexOf("define actor SquaredLoss"));
+  assert.match(tail,/const \(accepted, target\) = using state\.write\(critical/);
+  assert.match(tail,/if s\.seen_forward; do\s+return \(false, 0\)/);
+  assert.match(tail,/if !accepted; do\s+return -5/);
+  assert(tail.indexOf("if !accepted; do") < tail.indexOf("self.backward(Signal.Gradient(gradient))"));
+});
