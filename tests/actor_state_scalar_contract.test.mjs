@@ -11,6 +11,8 @@ test("single state schema; no actor field storage or self.state bypass", () => {
   assert.equal((source.match(/\bstate\s*\{/g)||[]).length,1);
   assert.doesNotMatch(source.replace(/\/\/[^\n]*/g,""),/\bself\.state\b/);
   assert.doesNotMatch(source,/^\s*(val|let)\s+(?:Tensor|Linear|Optimizer|Gradient)\s+/m);
+  assert.doesNotMatch(source,/^\s*pub\s+(?:forward|accumulate|commit|version)\(/m);
+  assert.match(source,/^\s*private forward\(/m);
 });
 
 test("with effect bounds are independent from lexical using authority", () => {
@@ -31,7 +33,7 @@ test("with effect bounds are independent from lexical using authority", () => {
 });
 
 test("write callback checks weight version and gradient count before publishing", () => {
-  const start=source.indexOf("pub commit("),end=source.indexOf("pub version()",start);
+  const start=source.indexOf("private commit("),end=source.indexOf("private version()",start);
   const commit=source.slice(start,end);
   const guard=commit.indexOf("s.version != expected_version");
   const full=commit.indexOf("s.pending_gradients != 2");
