@@ -181,3 +181,27 @@ test("tensor source checks excluded row and all four reverse-mapped rows",()=>{
     assert.match(source,re);
   }
 });
+
+
+test("excluded NaN/Infinity source slots are sanitized before constructing TensorF64",()=>{
+  const raw=[0,Infinity,1,2,3],targets=[1,NaN,3,5,7];
+  const rows=maskBatch(raw,targets,
+    [true,false,true,true,true],[true,false,true,true,true]);
+  const projected=Array(raw.length).fill(0);
+  for(const row of rows)projected[row.row]=row.x;
+  assert.deepEqual(projected,[0,0,1,2,3]);
+  assert(projected.every(Number.isFinite));
+  assert(!raw.every(Number.isFinite));
+  assert.match(source,/val List<float> projected_values = arr\[0\.0,0\.0,0\.0,0\.0,0\.0\]/);
+  assert.match(source,/projected_values\[row_ids\[j\]\] = x\[j\]/);
+  assert.match(source,/new TensorF64\(arr\[5,1\],projected_values\)/);
+  assert.doesNotMatch(source,/new TensorF64\(arr\[5,1\],feature\.values\)/);
+});
+test("excluded feature-valid but target-null records also cannot poison tensor materialization",()=>{
+  const raw=[1,NaN,3],targets=[2,999,6];
+  const rows=maskBatch(raw,targets,[true,true,true],[true,false,true]);
+  const projected=Array(raw.length).fill(0);
+  for(const {row,x} of rows)projected[row]=x;
+  assert.deepEqual(projected,[1,0,3]);
+  assert(rows.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
+});
