@@ -16,6 +16,7 @@ on:
       - "tests/guest_runner_provenance_contract.test.mjs"
       - "scripts/verify-data-autograd-guest.sh"
       - "tests/actor_state_scalar_contract.test.mjs"
+      - "tests/actor_state_typed_transaction_contract.test.mjs"
       - "tests/actor_state_bounded_numeric_contract.test.mjs"
       - "tests/actor_state_negative_manifest.test.mjs"
       - "tests/fixtures/actor-state-ml-negatives/**"
@@ -37,7 +38,7 @@ jobs:
         with:
           node-version: "22"
       - name: Run source spelling and scalar numerical reference cases
-        run: node --test tests/actor_state_scalar_contract.test.mjs tests/scalar_checked_result_contract.test.mjs tests/actor_state_bounded_numeric_contract.test.mjs tests/actor_state_negative_manifest.test.mjs tests/nullable_data_autograd_contract.test.mjs tests/guest_runner_provenance_contract.test.mjs tests/nullable_two_layer_autograd_contract.test.mjs tests/two_layer_runner_provenance_contract.test.mjs
+        run: node --test tests/actor_state_scalar_contract.test.mjs tests/actor_state_typed_transaction_contract.test.mjs tests/scalar_checked_result_contract.test.mjs tests/actor_state_bounded_numeric_contract.test.mjs tests/actor_state_negative_manifest.test.mjs tests/nullable_data_autograd_contract.test.mjs tests/guest_runner_provenance_contract.test.mjs tests/nullable_two_layer_autograd_contract.test.mjs tests/two_layer_runner_provenance_contract.test.mjs
       - name: Syntax check future compiled-guest validator
         run: bash -n scripts/verify-actor-state-guest.sh && bash -n scripts/verify-typed-scalar-guest.sh && bash -n scripts/verify-data-autograd-guest.sh && bash -n scripts/verify-two-layer-tensor-guest.sh
       - name: Clearly identify evidence boundary
