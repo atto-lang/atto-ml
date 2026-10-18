@@ -17,17 +17,17 @@ test("single state schema; no actor field storage or self.state bypass", () => {
 });
 
 test("with effect bounds are independent from lexical using authority", () => {
-  assert.match(source,/eval_affine\([^)]*\): int\s+with state\.read, state\.write/);
+  assert.match(source,/eval_affine\([^)]*\): Result<int, String>\s+with state\.read, state\.write/);
   assert.match(source,/using state\.read\(\|s\| -> s\.weight\)/);
-  assert.match(source,/accumulate\([^)]*\): int\s+with state\.read, state\.write/);
+  assert.match(source,/accumulate\([^)]*\): Result<int, String>\s+with state\.read, state\.write/);
   assert.match(source,/using state\.write\(critical \|s\| -> \{/);
-  assert.match(source,/commit\([^)]*\): int with state\.read, state\.write/);
+  assert.match(source,/commit\([^)]*\): Result<int, String> with state\.read, state\.write/);
   assert.match(source,/self\.handle_state\(critical write \|s\| -> \{/);
   assert.match(source,/version\(\): int with state\.read/);
   assert.match(source,/s\.step != expected_step/);
   assert.match(source,/s\.seen_first = true/);
   assert.match(source,/s\.seen_second = true/);
-  assert.match(source,/return -4;/); // duplicate microbatch
+  assert.match(source,/return Err\("DUPLICATE_GRADIENT"\);/); // duplicate microbatch
   assert.match(source,/microbatch != 1 && microbatch != 2/);
   assert.match(source,/self\.handle_state\(critical read \|s\| -> s\.version\)/);
   assert.doesNotMatch(source,/\bfnc\s+\w+\([^)]*\)\s+using\s+state/);
@@ -82,11 +82,11 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
 
 test("expected guest-output golden includes orphan and duplicate-forward rejection", () => {
   const golden = readFileSync(new URL("./golden/actor_state_scalar.stdout", import.meta.url),"utf8");
-  assert.deepEqual(golden.trim().split(/\r?\n/).map(Number),
-    [-6,-8,20,-7,30,-8,2,-4,-2,5,5,2,-1,50000,50000,100000000,200000000,-8,2,3,-1,10,10]);
+  assert.deepEqual(golden.trim().split(/\r?\n/),
+    ["REJECTED","REJECTED","20","REJECTED","30","REJECTED","2","REJECTED","REJECTED","5","5","2","REJECTED","50000","50000","100000000","200000000","REJECTED","2","3","REJECTED","10","-10","10"]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","cancel_failed","stale_after_cancel","new_forward","after"]);
+    ["orphan","unsafe_forward","forward1","forward_duplicate","forward2","unsafe_upstream","grad1","duplicate","early","grad2","commit","stale","high_forward1","high_forward2","high_grad1","high_grad2","high_commit","cancel_failed","stale_after_cancel","new_forward","new_negative_forward","after"]);
 });
 
 
@@ -129,8 +129,8 @@ test("backprop consumes only recorded forward contexts and clears them on commit
   assert.match(source,/s\.issued_second = false/);
   assert.match(source,/s\.input_first = 0/);
   assert.match(source,/s\.input_second = 0/);
-  assert.match(source,/return -6;/); // orphan backward
-  assert.match(source,/return -7;/); // duplicate forward
+  assert.match(source,/return Err\("ORPHAN_GRADIENT"\);/); // orphan backward
+  assert.match(source,/return Err\("DUPLICATE_FORWARD"\);/); // duplicate forward
   assert.doesNotMatch(source,/private accumulate\([^)]*\bint x\b/);
 });
 
@@ -175,8 +175,8 @@ test("bounded numeric rejects preserve source-gradient receipts and committed ve
   assert.equal(stage.version,2);
   assert.equal(stage.step,2);
   const golden=readFileSync(new URL("./golden/actor_state_scalar.stdout",import.meta.url),"utf8")
-     .trim().split(/\r?\n/).map(Number);
-  assert.deepEqual(golden.slice(-10),[50000,50000,100000000,200000000,-8,2,3,-1,10,10]);
+     .trim().split(/\r?\n/);
+  assert.deepEqual(golden.slice(-11),["50000","50000","100000000","200000000","REJECTED","2","3","REJECTED","10","-10","10"]);
 });
 
 test("typed cancellation handles only a fully received rejected candidate",()=>{
@@ -209,4 +209,29 @@ test("rejected step retirement rejects old version and permits fresh forward",()
   assert(oldVersion!==stage.version);
   const firstFresh=stage.weight*2;
   assert.equal(firstFresh,10);
+});
+
+test("all actor training operations report Result errors without numeric sentinels",()=>{
+  const start=source.indexOf("private eval_affine(");
+  const stop=source.indexOf("// A controlled recovery path",start);
+  const segment=source.slice(start,stop);
+  for(const method of ["eval_affine","accumulate","commit"])
+    assert.match(segment,new RegExp("private "+method+"\\([^)]*\\): Result<int, String>"));
+  assert.doesNotMatch(segment,/return -[0-9]+;/);
+  assert.match(segment,/return Err\("DUPLICATE_GRADIENT"\)/);
+  assert.match(segment,/return Err\("STALE_VERSION"\)/);
+  assert.match(segment,/return Ok\(s\.weight \* x\)/);
+  assert.match(segment,/return Ok\(s\.accumulated_gradient\)/);
+  assert.match(segment,/return Ok\(s\.weight\)/);
+  assert.match(source,/private print_outcome\(Result<int, String> outcome\): void/);
+  assert.match(source,/if outcome\.is_err\(\); do/);
+  assert.match(source,/stdio\.println\(outcome\.unwrap\(\)\)/);
+});
+test("a legitimate negative forward result cannot be confused with rejection",()=>{
+  const output=readFileSync(new URL("./golden/actor_state_scalar.stdout",import.meta.url),"utf8")
+    .trim().split(/\r?\n/);
+  assert.equal(output[22],"-10");
+  assert.equal(output[20],"REJECTED");
+  assert.match(source,/self\.eval_affine\(3, 3, 2, -2\)/);
+  assert.equal(5*(-2),-10);
 });
