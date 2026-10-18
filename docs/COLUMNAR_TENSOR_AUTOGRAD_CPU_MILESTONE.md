@@ -11,7 +11,7 @@
 3. `oreslang-autograd`: `TapeF64`, `forward_checked_into` and `backward_checked_into` execute a full two-affine-layer ReLU squared-loss graph, with gradients accumulated over all five examples before each SGD update.
 4. `oreslang-autograd` + `oreslang-tensor`: `row_gather_vjp_with_saved_f64_checked_into` verifies the saved selected source values and uses duplicate-aware scatter-add to propagate scalar input gradients back to the source tensor.
 
-This is a **CPU numerical bridge**. Matmul is deliberately an identity: its analytical VJP is identity, but general matmul reverse-mode rules, generic tensor tapes, actor-resident learned parameter storage, GPU kernels, and distributed optimization are **not** implemented here.
+This is a **CPU numerical bridge**. Matmul is deliberately initialized as an identity projection, but its backward path now calls the real checked **two-sided 2D matmul VJP** in stacked tensor PR #7. General tensor tapes, actor-resident learned parameter storage, GPU kernels, and distributed optimization are **not** implemented here.
 
 The program trains `x → affine1 → ReLU → affine2 → MSE` using five resampled training rows for 1,000 SGD iterations. Its explicit guest acceptance marker is:
 
@@ -46,10 +46,12 @@ Before moving this example into actor messages, production must provide immutabl
 | --- | --- |
 | CPU-0 | Source/host reference, numeric convergence and algebraic VJP checks (**host-only PASS 10/10**) |
 | CPU-1 | Actual Java/GraalVM guest run of pinned source with golden stdout; recorded parsed effect and ownership checks (**NOT_EXECUTED**) |
-| CPU-2 | Full tensor matmul/affine VJPs, automatic saved tensor graph, independently frozen output buffers; finite differences |
+| CPU-2 | Two-sided 2D matmul VJP is present in stacked tensor PR #7; next: generic tensor autodiff graph, versioned saved buffers and compiler-verified ownership |
 | ACTOR-1 | Ingress/forward/backward/optimizer actors, only one `state` each, `with` effect and `using`/RW gate, no loan escapes; two concurrent microbatches |
 | ACTOR-2 | Versioned snapshot pin/release, cancellation/de-duplication, full fan-in gate, fault replay and atomic optimizer commits |
 | LLVM | Same semantically supported guest source, native builds and sanitizers on exact-tree verified commit |
 | GPU | Explicit device lifetime, memory limits, async events, distribution/restart and performance benchmarks |
 
 **Do not mark this as AI/ML pipeline parity solely because a host numerical oracle or a draft workflow passed.**
+
+The current separate host oracle has 12 independent cases after matmul-backward chaining was added; this remains HOST_ONLY until source-compiled guest execution is verified. Matmul weight-gradient results in the fixture are *computed and checked*, but the identity projection is held constant during SGD rather than trained as another parameter. Training still updates the four scalar-tape parameters.
