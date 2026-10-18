@@ -6,6 +6,7 @@ on:
       - "examples/two_stage_actor_vjp_bootstrap.ores"
       - "tests/two_stage_actor_vjp_contract.test.mjs"
       - "tests/supervised_tensor_autograd_contract.test.mjs"
+      - "tests/supervised_cpu_guest_guard.test.mjs"
       - "scripts/verify-supervised-cpu-guest.sh"
       - "docs/SUPERVISED_CPU_INTEGRATION_V1.md"
       - ".github/workflows/supervised-cpu-host-contract.yml"
@@ -29,7 +30,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute independent source and convergence oracle
-        run: node --test tests/supervised_tensor_autograd_contract.test.mjs tests/two_stage_actor_vjp_contract.test.mjs
+        run: node --test tests/supervised_tensor_autograd_contract.test.mjs tests/two_stage_actor_vjp_contract.test.mjs tests/supervised_cpu_guest_guard.test.mjs
       - name: Validate future compiled guest verifier syntax
         run: bash -n scripts/verify-supervised-cpu-guest.sh
       - name: Preserve evidence boundaries
