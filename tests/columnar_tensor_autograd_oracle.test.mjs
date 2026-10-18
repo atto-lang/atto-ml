@@ -166,3 +166,28 @@ test("randomized masked gathers conserve linear adjoint dot products",()=>{
     assert(Math.abs(lhs-rhs)<1e-8);
   }
 });
+
+test("native training fixture explicitly backpropagates through two-sided matmul",()=>{
+  assert.match(source,/import fnc matmul_both_vjp_f64_checked_into/);
+  assert.match(source,/matmul_both_vjp_f64_checked_into\(/);
+  assert.match(source,/matmul_dx_scratch, matmul_dw_scratch, matmul_dx, matmul_dw/);
+  assert.match(source,/new TensorF64\(arr\[5, 1\], matmul_dx\)/);
+  assert.match(source,/saved_gather, gather_upstream/);
+});
+test("1D projection matrix VJP propagates both input and weight gradients",()=>{
+  const selected=[-2,-1,1,1,2],weights=[1],upstream=[3,-2,4,5,7];
+  const gradInput=upstream.map(v=>v*weights[0]);
+  const gradWeight=selected.reduce((sum,v,i)=>sum+v*upstream[i],0);
+  assert.deepEqual(gradInput,upstream);
+  const objective=(features,w)=>
+    features.reduce((sum,x,i)=>sum+x*w*upstream[i],0);
+  const h=1e-6;
+  const dw=(objective(selected,weights[0]+h)-objective(selected,weights[0]-h))/(2*h);
+  assert(Math.abs(dw-gradWeight)<1e-8);
+  for(let i=0;i<selected.length;i++){
+    const hi=selected.slice(),lo=selected.slice();
+    hi[i]+=h;lo[i]-=h;
+    const d=(objective(hi,weights[0])-objective(lo,weights[0]))/(2*h);
+    assert(Math.abs(d-gradInput[i])<1e-8);
+  }
+});
