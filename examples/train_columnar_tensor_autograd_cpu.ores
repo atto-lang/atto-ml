@@ -11,6 +11,7 @@ import class DenseSupervisedBatchF64 from "../../oreslang-data-science/src/pipel
 import fnc compact_supervised_f64_into from "../../oreslang-data-science/src/pipeline/ml_batch_bridge";
 import class TensorF64 from "../../oreslang-tensor/src/tensor";
 import fnc matmul_2d_f64_into from "../../oreslang-tensor/src/tensor";
+import fnc matmul_both_vjp_f64_checked_into from "../../oreslang-tensor/src/matmul_vjp";
 import fnc gather_rows_2d_f64_into from "../../oreslang-tensor/src/row_batches";
 import class TapeF64 from "../../oreslang-autograd/src/tape";
 import fnc forward_checked_into from "../../oreslang-autograd/src/forward_checked";
@@ -49,9 +50,9 @@ pub routine main(): void {
   Assert.equal_throws(gathered_x[2], gathered_x[3]);
   Assert.equal_throws(gathered_y[2], gathered_y[3]);
 
-  // Identity projection deliberately exercises checked 2D tensor matmul.
-  // Its derivative is identity; the scalar tape differentiates all subsequent
-  // nonlinear layers. General matmul VJP remains a separate production gate.
+  // Identity projection exercises checked 2D tensor matmul. Backward now
+  // uses the actual two-sided matmul VJP, not a hardcoded identity gradient.
+  // The scalar tape differentiates the two subsequent nonlinear layers.
   val TensorF64 input_tensor = new TensorF64(arr[5, 1], gathered_x);
   val TensorF64 identity = new TensorF64(arr[1, 1], arr[1.0]);
   val List<float> projected = arr[0.0, 0.0, 0.0, 0.0, 0.0];
@@ -125,15 +126,32 @@ pub routine main(): void {
   Assert.true_throws(last_loss < 0.000001);
   Assert.true_throws(parameters[3] > 0.99 && parameters[3] < 1.01);
 
-  // Backpropagate the final sample VJP through the saved row gather. Since
-  // projection is identity, the selected tensor upstream has matching shape.
+  // Backpropagate the scalar-tape gradient through the explicit tensor
+  // matrix projection, then through saved row gathering (including repeated
+  // row 3). Both matmul outputs are staged before publication.
   val TensorF64 saved_gather = new TensorF64(arr[5, 1], gathered_x);
   val TensorF64 upstream = new TensorF64(arr[5, 1], sample_vjp);
+  val List<float> matmul_dx_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> matmul_dw_scratch = arr[0.0];
+  val List<float> matmul_dx = arr[0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> matmul_dw = arr[0.0];
+  Assert.true_throws(matmul_both_vjp_f64_checked_into(
+      input_tensor, identity, upstream,
+      matmul_dx_scratch, matmul_dw_scratch, matmul_dx, matmul_dw
+  ).is_ok());
+  let float right_vjp_expected = 0.0;
+  for int i = 0; i < 5; i++ do
+    Assert.equal_throws(matmul_dx[i], sample_vjp[i]);
+    right_vjp_expected = right_vjp_expected +
+        gathered_x[i] * sample_vjp[i];
+  done
+  Assert.equal_throws(matmul_dw[0], right_vjp_expected);
+  val TensorF64 gather_upstream = new TensorF64(arr[5, 1], matmul_dx);
   val List<float> forward_verify = arr[0.0, 0.0, 0.0, 0.0, 0.0];
   val List<float> gradient_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0];
   val List<float> gradient_input = arr[0.0, 0.0, 0.0, 0.0, 0.0];
   Assert.true_throws(row_gather_vjp_with_saved_f64_checked_into(
-      source_tensor, row_indices, saved_gather, upstream,
+      source_tensor, row_indices, saved_gather, gather_upstream,
       forward_verify, gradient_scratch, gradient_input
   ).is_ok());
   Assert.equal_throws(gradient_input[2], 0.0);
