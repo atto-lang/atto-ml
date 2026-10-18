@@ -35,6 +35,30 @@ command -v git >/dev/null || { echo "NOT_EXECUTED: git unavailable" >&2; exit 78
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workspace="$(dirname "$root")"
 
+require_tree() {
+  local repo="$1" expected="$2" base="$workspace/$repo"
+  if [[ ! -e "$base/.git" ]]; then
+    echo "NOT_EXECUTED: missing dependency repository $repo" >&2
+    exit 78
+  fi
+  local current
+  current="$(git -C "$base" rev-parse HEAD)"
+  if [[ "$current" != "$expected" ]]; then
+    echo "NOT_EXECUTED: dependency HEAD mismatch $repo" >&2
+    exit 78
+  fi
+  # Prevent checkout byte drift or extra untracked import-shadowing files.
+  if [[ -n "$(git -C "$base" status --porcelain --untracked-files=all)" ]]; then
+    echo "NOT_EXECUTED: dirty dependency checkout $repo" >&2
+    exit 78
+  fi
+}
+# Exact reviewed source-repository commit snapshots, not merely six selected
+# source files. The per-file blob pins below offer an independent cross-check.
+require_tree oreslang-data-science 3d9d273a8fd705c321d60d281bd4ced88afb55b6
+require_tree oreslang-tensor e0c2aec1a050f30d06b359f4662adf5f5604bbe6
+require_tree oreslang-autograd 455fd9ffb403bb25614103ce6a101cba43e63c2c
+
 require_blob() {
   local repo="$1" path="$2" expected="$3"
   local base="$workspace/$repo"
@@ -74,4 +98,4 @@ if ! cmp -s "$temp/expected" "$temp/actual"; then
   echo "ORESLANG_GUEST=OUTPUT_MISMATCH; no pass receipt" >&2
   exit 1
 fi
-echo "ORESLANG_GUEST=PASS; COMPILER_SHA256=$actual_compiler_digest; DEPENDENCY_BLOBS=6; CPU_AUTOGRAD=VERIFIED"
+echo "ORESLANG_GUEST=PASS; COMPILER_SHA256=$actual_compiler_digest; DEPENDENCY_TREES=3; DEPENDENCY_BLOBS=6; CPU_AUTOGRAD=VERIFIED"
