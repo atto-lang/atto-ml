@@ -58,7 +58,8 @@ class Stage {
     if(run!==this.run)return err("STALE_RUN");
     if(graph!==this.graph)return err("STALE_GRAPH");
     if(inc!==this.incarnation)return err("STALE_INCAR");
-    if(version!==this.version||step!==this.step)return err("STALE_STEP");
+    if(version!==this.version)return err("STALE_VERSION");
+    if(step!==this.step)return err("STALE_STEP");
     const p=this.candidate();
     if(p.ok)return err("VALID_CANDIDATE_MUST_COMMIT");
     if(p.reason!=="UNSAFE_CANDIDATE")return p;
@@ -216,4 +217,17 @@ test("graph and incarnation must both be present on every stateful call",()=>{
     assert(method.indexOf('Err(TrainingError.STALE_GRAPH())')>=0,op+" missing graph guard");
   }
   assert.match(source,/worker\.send\("wrong_graph"\)/);
+});
+
+test("compensation distinguishes stale version from stale step without consuming receipts",()=>{
+  const actor=new Stage(5,2,2,101,7,202);
+  for(const id of [1,2])actor.forwardStep(2,2,id,10000);
+  for(const id of [1,2])actor.backwardStep(2,2,id,10000);
+  const before=actor.snapshot();
+  assert.deepEqual(actor.cancelRejected(2,1,101,7,202),err("STALE_VERSION"));
+  assert.deepEqual(actor.cancelRejected(1,2,101,7,202),err("STALE_STEP"));
+  assert.deepEqual(actor.commit(2,1,101,7,202),err("STALE_VERSION"));
+  assert.deepEqual(actor.commit(1,2,101,7,202),err("STALE_STEP"));
+  assert.deepEqual(actor.snapshot(),before);
+  assert.deepEqual(actor.cancelRejected(2,2,101,7,202),ok(3));
 });
