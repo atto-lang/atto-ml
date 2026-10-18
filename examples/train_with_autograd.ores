@@ -30,7 +30,8 @@ pub routine main(): void {
       );
       val List<float> activations = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
       val List<float> gradients = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-      Assert.true_throws(forward_f64_into(tape, activations).is_ok());
+      val List<float> fwd_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      Assert.true_throws(forward_checked_into(tape, fwd_scratch, activations).is_ok());
       Assert.true_throws(backward_f64_into(tape, activations, 7, 1.0, gradients).is_ok());
       grad_weight = grad_weight + gradients[0];
       grad_bias = grad_bias + gradients[2];
