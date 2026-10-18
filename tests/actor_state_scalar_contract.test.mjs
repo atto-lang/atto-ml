@@ -17,7 +17,7 @@ test("single state schema; no actor field storage or self.state bypass", () => {
 });
 
 test("with effect bounds are independent from lexical using authority", () => {
-  assert.match(source,/eval_affine\(int x\): int with state\.read/);
+  assert.match(source,/eval_affine\([^)]*\): int\s+with state\.read, state\.write/);
   assert.match(source,/using state\.read\(\|s\| -> s\.weight\)/);
   assert.match(source,/accumulate\([^)]*\): int\s+with state\.read, state\.write/);
   assert.match(source,/using state\.write\(critical \|s\| -> \{/);
@@ -39,7 +39,7 @@ test("write callback checks weight version and gradient count before publishing"
   const guard=commit.indexOf("s.version != expected_version");
   const full=commit.indexOf("s.pending_gradients != 2");
   const stepGuard=commit.indexOf("s.step != expected_step");
-  const bothIds=commit.indexOf("!s.seen_first || !s.seen_second");
+  const bothIds=commit.indexOf("!s.issued_first || !s.issued_second || !s.seen_first || !s.seen_second");
   assert(stepGuard > guard && bothIds > full);
   const update=commit.indexOf("s.weight = s.weight - s.accumulated_gradient");
   const bump=commit.indexOf("s.version = s.version + 1");
@@ -77,22 +77,22 @@ test("scalar weight VJP agrees with finite differences for many values", () => {
   }
 });
 
-test("expected guest-output golden reflects success and rejection receipts", () => {
+test("expected guest-output golden includes orphan and duplicate-forward rejection", () => {
   const golden = readFileSync(new URL("./golden/actor_state_scalar.stdout", import.meta.url),"utf8");
   assert.deepEqual(golden.trim().split(/\r?\n/).map(Number),
-    [20,30,2,-4,-2,5,5,2,-1,10]);
+    [-6,20,-7,30,2,-4,-2,5,5,2,-1,10]);
   const messages=[...source.matchAll(/worker\.send\("([^"]+)"\)/g)].map(m=>m[1]);
   assert.deepEqual(messages,
-    ["forward1","forward2","grad1","duplicate","early","grad2","commit","stale","after"]);
+    ["orphan","forward1","forward_duplicate","forward2","grad1","duplicate","early","grad2","commit","stale","after"]);
 });
 
 
 test("every accumulate invocation has five arguments and versioned stale rejection",()=>{
   const calls=[...source.matchAll(/self\.accumulate\(([^)]*)\)/g)];
-  assert.equal(calls.length,4);
+  assert.equal(calls.length,5);
   for(const call of calls) {
     const args=call[1].split(",").map(x=>x.trim());
-    assert.equal(args.length,5);
+    assert.equal(args.length,4);
     assert.equal(args[0],"1");
     assert.equal(args[1],"1");
     assert([1,2].includes(Number(args[2])));
@@ -103,7 +103,7 @@ test("every accumulate invocation has five arguments and versioned stale rejecti
   assert.match(source,/s\.version != expected_version/);
 });
 test("actor state effects and private helpers cannot be bypassed by handlers",()=>{
-  const helpers=["eval_affine","accumulate","commit","version"];
+  const helpers=["eval_affine","accumulate","commit","version","weight_snapshot"];
   for(const name of helpers) {
     assert(source.includes("private "+name+"("));
     assert(!source.includes("pub "+name+"("));
@@ -111,4 +111,22 @@ test("actor state effects and private helpers cannot be bypassed by handlers",()
   const handler=source.slice(source.indexOf("receive(ActorMail<String> mail)"));
   assert.doesNotMatch(handler,/\bself\.state\b/);
   assert.doesNotMatch(handler,/\busing\s+state\.(?:read|write)\b/);
+});
+
+test("backprop consumes only recorded forward contexts and clears them on commit",()=>{
+  assert.match(source,/issued_first: bool = false/);
+  assert.match(source,/issued_second: bool = false/);
+  assert.match(source,/input_first: int = 0/);
+  assert.match(source,/input_second: int = 0/);
+  assert.match(source,/if !s\.issued_first/);
+  assert.match(source,/if !s\.issued_second/);
+  assert.match(source,/s\.input_first \* upstream/);
+  assert.match(source,/s\.input_second \* upstream/);
+  assert.match(source,/s\.issued_first = false/);
+  assert.match(source,/s\.issued_second = false/);
+  assert.match(source,/s\.input_first = 0/);
+  assert.match(source,/s\.input_second = 0/);
+  assert.match(source,/return -6;/); // orphan backward
+  assert.match(source,/return -7;/); // duplicate forward
+  assert.doesNotMatch(source,/private accumulate\([^)]*\bint x\b/);
 });
