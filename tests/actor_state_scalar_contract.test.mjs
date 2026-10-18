@@ -100,7 +100,7 @@ test("every accumulate invocation has four arguments and matching step/version",
     assert.equal(args[0],args[1]);
     assert([1,2].includes(Number(args[2])));
   }
-  const stale=source.match(/if mail\.value == "stale"; do\s*stdio\.println\(self\.accumulate\(([^)]*)\)\)/);
+  const stale=source.match(/if mail\.value == "stale"; do\s*self\.print_outcome\(self\.accumulate\(([^)]*)\)\)/);
   assert(stale);
   assert.equal(stale[1].split(",").map(x=>Number(x.trim()))[1],1);
   assert.match(source,/s\.version != expected_version/);
