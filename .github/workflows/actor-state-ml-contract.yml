@@ -4,6 +4,7 @@ on:
     paths:
       - "examples/train_actor_state_scalar.ores"
       - "examples/train_actor_two_layer_autograd.ores"
+      - "docs/ACTOR_TWO_LAYER_AUTOGRAD_STATE_GATE.md"
       - "examples/typed_scalar_step_result.ores"
       - "src/training/scalar_checked_result.ores"
       - "tests/scalar_checked_result_contract.test.mjs"
