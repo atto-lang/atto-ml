@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Real two-repository native Oreslang guest gate for an actor-owned\n# two-layer ReLU/autograd training step with state-version CAS. Never fetches or
+# Real two-repository native Oreslang guest gate for an actor-owned
+# two-layer ReLU/autograd training step with state-version CAS. Never fetches or
 # publishes private source and never treats a JS oracle as compiler evidence.
 set -euo pipefail
 if (($# == 0)); then
