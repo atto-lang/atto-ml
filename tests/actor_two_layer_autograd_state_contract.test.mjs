@@ -87,7 +87,7 @@ test("independent per-parameter gradients pass finite differences",()=>{
 });
 test("ReLU negative branch blocks hidden gradients but not output bias",()=>{
   const g=sample({w1:1,b1:-20,w2:2,b2:0},3,7);
-  assert.equal(g.w1,0);assert.equal(g.b1,0);assert.equal(g.w2,0);
+  assert.equal(g.w1,0);assert.equal(g.b1,0);assert(Math.abs(g.w2)===0);
   assert.equal(g.input,0);assert.equal(g.b2,-14);
 });
 test("1000 independently modeled SGD commits converge and publish once per epoch",()=>{
