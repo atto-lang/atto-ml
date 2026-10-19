@@ -16,6 +16,22 @@ An incoming `"fit"` mailbox message performs 1,000 iterations of the 2-layer ReL
 
 There is no optimizer momentum state in this SGD example. An AdamW variant must atomically publish moment slots and weights in the same state transaction; it is invalid to commit one without the other.
 
+## Nominal outcome and transaction-identity hardening
+
+The two-layer stage now uses a closed `TwoLayerTrainingError` enum rather than
+`Result<float,String>`. The result presenter explicitly matches every error
+variant with no wildcard, so extending the error set must update the compiler-
+checked handling path.
+
+The actor state also carries demo run, graph and incarnation fences in addition
+to weight version and committed epoch. `train_epoch` snapshots all five
+transaction dimensions before leaving the read loan. The critical publication
+revalidates run, graph, incarnation, version and epoch before publishing any
+parameter. Host-only regressions cover both forged expected identities and
+identity changes after the snapshot but before publication. These integer IDs
+remain demonstration fences, not authentication; production must source run and
+incarnation authority from the trusted runtime/supervisor control plane.
+
 ## Independent checks and evidence boundaries
 
 `tests/actor_two_layer_autograd_state_contract.test.mjs` contains:
