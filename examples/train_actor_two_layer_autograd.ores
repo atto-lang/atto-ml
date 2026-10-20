@@ -1,0 +1,224 @@
+// Proposed Oreslang CPU guest gate; not verified compiled by Java or LLVM.
+// Actor-owned 2-layer scalar-tape MLP: y = w2 * ReLU(w1*x + b1) + b2.
+// All persistent parameters/version/epoch live in the ONE actor state.
+// A primitive-value snapshot exits the read loan before ALL reverse-mode work.
+// One exclusive critical transaction checks the version and publishes 4 weights.
+//
+// This deliberately uses bounded, single-process training data; no TensorF64
+// storage leases, GPU execution, actor-pipeline transport or source-org guest
+// execution is claimed. Sibling oreslang-autograd checkout is required.
+import class TapeF64 from '../../oreslang-autograd/src/tape';
+import fnc forward_checked_into from '../../oreslang-autograd/src/forward_checked';
+import fnc backward_checked_into from '../../oreslang-autograd/src/backward_checked';
+
+define enum TwoLayerTrainingError as
+    STALE_RUN = 1
+    STALE_GRAPH = 2
+    STALE_INCAR = 3
+    STALE_EPOCH = 4
+    COUNTER_EXHAUSTED = 5
+    FORWARD_REJECTED = 6
+    BACKWARD_REJECTED = 7
+    NONFINITE_GRADIENT = 8
+    NONFINITE_CANDIDATE = 9
+    STALE_SNAPSHOT = 10
+end
+
+define actor TwoLayerTrainingActor as
+    state {
+        // Demo identity fences; runtime/supervisor authority must mint these in production.
+        run_id: int = 101;
+        graph_id: int = 202;
+        incarnation: int = 1;
+        first_weight: float = 1.0;
+        first_bias: float = 1.0;
+        second_weight: float = 1.0;
+        second_bias: float = 0.0;
+        version: int = 1;
+        committed_epoch: int = 0;
+    }
+
+    private train_epoch(
+        int requested_epoch, int expected_run, int expected_graph, int expected_incarnation
+    ): Result<float, TwoLayerTrainingError>
+        with state.read, state.write
+    {
+        // The tuple contains ONLY copied primitive values, never a state
+        // reference, mutable parameter handle, lambda, or escaped borrow.
+        const (
+            w1, b1, w2, b2, pinned_version, prior_epoch,
+            pinned_run, pinned_graph, pinned_incarnation
+        ) = using state.read(|s| -> (
+            s.first_weight, s.first_bias, s.second_weight,
+            s.second_bias, s.version, s.committed_epoch,
+            s.run_id, s.graph_id, s.incarnation
+        ));
+        if pinned_run != expected_run; do
+            return Err(TwoLayerTrainingError.STALE_RUN());
+        fi
+        if pinned_graph != expected_graph; do
+            return Err(TwoLayerTrainingError.STALE_GRAPH());
+        fi
+        if pinned_incarnation != expected_incarnation; do
+            return Err(TwoLayerTrainingError.STALE_INCAR());
+        fi
+        if requested_epoch != prior_epoch + 1; do
+            return Err(TwoLayerTrainingError.STALE_EPOCH());
+        fi
+        if pinned_version < 1 || pinned_version >= 1000000; do
+            return Err(TwoLayerTrainingError.COUNTER_EXHAUSTED());
+        fi
+
+        val List<float> features = arr[0.0,1.0,2.0,3.0];
+        val List<float> targets = arr[1.0,3.0,5.0,7.0];
+        let float dw1 = 0.0;
+        let float db1 = 0.0;
+        let float dw2 = 0.0;
+        let float db2 = 0.0;
+        let float loss = 0.0;
+        for int i = 0; i < 4; i++ do
+            // Nodes 0..5: [w1,x,b1,w2,b2,-y]; 6: w1*x; 7: +b1;
+            // 8: ReLU; 9: w2*relu; 10: +b2; 11: subtract y; 12: square.
+            // Autograd, not handwritten derivatives, produces all dLoss/dw.
+            val TapeF64 tape = new TapeF64(
+                arr[0,0,0,0,0,0,2,1,3,2,1,1,2],
+                arr[-1,-1,-1,-1,-1,-1,0,6,7,3,9,10,11],
+                arr[-1,-1,-1,-1,-1,-1,1,2,-1,8,4,5,11],
+                arr[w1,features[i],b1,w2,b2,0.0-targets[i],
+                    0.0,0.0,0.0,0.0,0.0,0.0,0.0]
+            );
+            val List<float> activations = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+                0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            val List<float> gradients = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+                0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            val List<float> forward_scratch = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+                0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            val List<float> backward_scratch = arr[0.0,0.0,0.0,0.0,0.0,0.0,
+                0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            if forward_checked_into(tape,forward_scratch,activations).is_err(); do
+                return Err(TwoLayerTrainingError.FORWARD_REJECTED());
+            fi
+            if backward_checked_into(
+                tape,activations,12,1.0,backward_scratch,gradients
+            ).is_err(); do
+                return Err(TwoLayerTrainingError.BACKWARD_REJECTED());
+            fi
+            val float ndw1 = dw1 + gradients[0];
+            val float ndb1 = db1 + gradients[2];
+            val float ndw2 = dw2 + gradients[3];
+            val float ndb2 = db2 + gradients[4];
+            val float nloss = loss + activations[12];
+            // All numerical work happens outside the state loan.
+            if (ndw1-ndw1) != 0.0 || (ndb1-ndb1) != 0.0
+                || (ndw2-ndw2) != 0.0 || (ndb2-ndb2) != 0.0
+                || (nloss-nloss) != 0.0; do
+                return Err(TwoLayerTrainingError.NONFINITE_GRADIENT());
+            fi
+            dw1 = ndw1;
+            db1 = ndb1;
+            dw2 = ndw2;
+            db2 = ndb2;
+            loss = nloss;
+        done
+
+        val float rate = 0.02 / 4.0;
+        val float candidate_w1 = w1 - rate*dw1;
+        val float candidate_b1 = b1 - rate*db1;
+        val float candidate_w2 = w2 - rate*dw2;
+        val float candidate_b2 = b2 - rate*db2;
+        val float candidate_loss = loss / 4.0;
+        if (candidate_w1-candidate_w1) != 0.0
+            || (candidate_b1-candidate_b1) != 0.0
+            || (candidate_w2-candidate_w2) != 0.0
+            || (candidate_b2-candidate_b2) != 0.0
+            || (candidate_loss-candidate_loss) != 0.0; do
+            return Err(TwoLayerTrainingError.NONFINITE_CANDIDATE());
+        fi
+
+        // Revalidate the exact snapshot identity after arbitrary time spent
+        // computing outside the state. A competing turn wins at most once.
+        return self.handle_state(critical write |s| -> {
+            if s.run_id != pinned_run || pinned_run != expected_run; do
+                return Err(TwoLayerTrainingError.STALE_RUN());
+            fi
+            if s.graph_id != pinned_graph || pinned_graph != expected_graph; do
+                return Err(TwoLayerTrainingError.STALE_GRAPH());
+            fi
+            if s.incarnation != pinned_incarnation
+                || pinned_incarnation != expected_incarnation; do
+                return Err(TwoLayerTrainingError.STALE_INCAR());
+            fi
+            if s.version != pinned_version || s.committed_epoch != prior_epoch
+                || requested_epoch != s.committed_epoch + 1; do
+                return Err(TwoLayerTrainingError.STALE_SNAPSHOT());
+            fi
+            // No parameter is visible as partially updated: all candidate
+            // values were checked before this exclusive state transaction.
+            s.first_weight = candidate_w1;
+            s.first_bias = candidate_b1;
+            s.second_weight = candidate_w2;
+            s.second_bias = candidate_b2;
+            s.version = s.version + 1;
+            s.committed_epoch = requested_epoch;
+            return Ok(candidate_loss);
+        });
+    }
+
+    // The exhaustive nested match is a compiler gate: adding an error variant
+    // requires this presenter to change. Guest stdout intentionally stays stable.
+    private print_failure(Result<float, TwoLayerTrainingError> outcome): void {
+        match outcome over
+            on Ok(value) -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+            on Err(problem) -> {
+                match problem over
+                    on TwoLayerTrainingError.STALE_RUN -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.STALE_GRAPH -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.STALE_INCAR -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.STALE_EPOCH -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.COUNTER_EXHAUSTED -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.FORWARD_REJECTED -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.BACKWARD_REJECTED -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.NONFINITE_GRADIENT -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.NONFINITE_CANDIDATE -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                    on TwoLayerTrainingError.STALE_SNAPSHOT -> { stdio.println("ORES_ACTOR_TWO_LAYER_FAIL"); }
+                end
+            }
+        end
+        return;
+    }
+
+    private committed_version(): int with state.read {
+        return self.handle_state(critical read |s| -> s.version);
+    }
+
+    receive(ActorMail<String> mail): void {
+        if mail.value == "fit"; do
+            let float last_loss = 1.0;
+            for int epoch = 1; epoch <= 1000; epoch++ do
+                val Result<float, TwoLayerTrainingError> result =
+                    self.train_epoch(epoch, 101, 202, 1);
+                if result.is_err(); do
+                    self.print_failure(result);
+                    self.end();
+                    return;
+                fi
+                last_loss = result.unwrap();
+            done
+            if last_loss >= 0.000001 || self.committed_version() != 1001; do
+                stdio.println("ORES_ACTOR_TWO_LAYER_FAIL");
+            else
+                stdio.println("ORES_ACTOR_TWO_LAYER_AUTOGRAD_PASS");
+            fi
+            self.end();
+            return;
+        fi
+        return;
+    }
+end
+
+pub async routine main(): void {
+    val worker = spawn TwoLayerTrainingActor();
+    await worker.get_ready();
+    worker.send("fit");
+    await worker.get_done();
+}

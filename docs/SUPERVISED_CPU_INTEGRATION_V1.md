@@ -1,0 +1,130 @@
+# Supervised CPU data → tensor → autograd integration (P1 gate)
+
+**Status: proposed real-guest source fixture and independently tested HOST-ONLY math oracle. Not yet compiled or run by Oreslang.** No private-source cross-organization copy is authorized by this work.
+
+## Scope and real dependencies
+
+`examples/train_supervised_tensor_autograd.ores` uses four existing Oreslang sources through their public library functions, not a surrogate host implementation:
+
+- `oreslang-data-science`: `FloatColumn`, `compact_supervised_f64_into` (nullable feature/label mask intersection, original row IDs), and `scatter_add_f64_into` (reverse row provenance)
+- `oreslang-tensor`: `TensorF64`, `matmul_2d_f64_into` ([N,1] @ [1,1])
+- `oreslang-autograd`: `TapeF64`, `forward_checked_into`, `backward_checked_into` (genuine bounded reverse-mode scalar arithmetic graph)
+- `oreslang-ml`: bounded 500-step CPU SGD demonstration, weight and bias, training convergence and tensor/tape forward equivalence.
+
+A fifth invalid source row deliberately contains extreme values and must not be admitted as a training example. Initial gradient provenance is scattered to the five original rows, ensuring the filtered row remains zero. Four accepted source rows form exactly [4,1] tensor input storage: the **current List-backed TensorF64 is not a dynamic zero-copy view of a partially used buffer**. P0 explicitly rejects pretending otherwise.
+
+The tape has 8 nodes per example: `w`, `x`, `b`, `-target`, `w*x`, `+b`, `+(-target)`, `square`. Gradient contributions to `w` and `b` come from `backward_checked_into`, never handwritten guest gradients. Source code cross-checks the forward activation against the tensor matrix multiplication plus bias. The SGD update computes both candidates before mutating the ordinary synchronous routine's weight/bias lists.
+
+Expected stdout is exactly one line: `ORES_ML_SUPERVISED_TENSOR_AUTOGRAD_PASS`.
+
+## Reproducible real-guest gate
+
+Place checked-out sibling repositories under one root:
+
+```text
+workspace/
+  oreslang-ml/
+  oreslang-data-science/
+  oreslang-tensor/
+  oreslang-autograd/
+```
+
+With an **already available audited Oreslang compiler**:
+
+```sh
+ORESLANG_BIN=/absolute/path/to/oreslang ORESLANG_BIN_SHA256=<64-hex-digest> bash scripts/verify-supervised-cpu-guest.sh
+```
+
+The script refuses an absent runtime or sibling source and requires the **exact Oreslang executable SHA-256** and pins **six actual Git blob identities**, validated with `git hash-object` for the current working files. It does not fetch/checkout/copy source, create a runner, invent a pass, or use GitHub credentials. It calls the real guest program, compares exact stdout and returns nonzero on compile/runtime/output failure. The source-org's current Actions inability to allocate runners is neither a pass nor proof of compiler failure.
+
+The host test `tests/supervised_tensor_autograd_contract.test.mjs` is independent JavaScript numerical validation and syntax/composition inspection only, **not an implementation of Oreslang library APIs**. It should run under Node 22, and its results are labeled HOST_ONLY. An isolated V8 check covered 11 cases at the first reviewed source/test Git blobs; no native guest result is available yet.
+
+## Actor boundary and required next gate
+
+This P1 fixture is intentionally synchronous. It is **not** a disguised multi-actor trainer. The existing scalar actor example on PR #7 separately exercises mailbox-only interaction and short `state` loans. Merging the two into true actor-native training requires:
+
+1. Each neural-network actor has one `state { ... }` and **no ordinary persistent instance fields**. Own tensor/version handles, optimizer slots, saved-forward contexts and edge receipts underneath that sole schema.
+2. `with state.read, state.write` declares effect bounds; actual state admission must go through lexical `using state.read` and `using state.write(critical ...)`, or the sealed `self.handle_state(critical read/write ...)` intrinsic.
+3. Short read/write loans pin independently immutable tensors; tensor matmul and VJP execute **outside** loans. No `await`, channel wait, I/O, GPU submit, or actor send with an active state loan.
+4. Versioned envelopes bind **run, graph generation, step, actor incarnation, microbatch, edge identity and parameter version**. Forward context pins the same weight version used in backward. Duplicate/late gradients and partial fan-in cannot trigger an optimizer commit.
+5. Prepared candidate weights/optimizer state publish in one local exclusive transition, with a replay-safe receipt. Cross-shard/distributed publication requires additional protocol and consistent recovery; a single actor's RW gate cannot make a global transaction.
+6. Train two stages using actual typed actor messages; run 1 and 3 execution threads with bounded memory, cancellation, poison/stale messages, lost sends and deterministic replay. Only after this passes do GPU execution and pipeline scheduling qualify.
+
+### Current evidence tiers
+
+- E0: independent host numerical/source tests, no Oreslang guest execution (this PR).
+- E1: real `.ores` execution with all six exact source blob IDs and source-tree/CLI provenance, no compiler bypass.
+- E2: typed multi-actor forward/backward training, locked state-loan and version consistency under concurrency.
+- E3: Java Maven/JDK25, JVM/native-image, LLVM native + sanitizers, bounded-memory/failure-injection and GPU if applicable.
+
+Source-private cross-organization mirror work remains gated by the open [public carrier incident #22](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/issues/22) and [private carrier incident #77](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/issues/77); no new private-tree transfers are permitted merely because an alternative runner has paid GitHub Actions capacity.
+
+## Experimental actor forward/backward control-path fixture
+
+`examples/two_stage_actor_vjp_bootstrap.ores` is a separate experimental actor communication gate adapted from the already present LLVM transform-pipe syntax. It uses three actors: `InputWeight` → `HiddenWeight` → `SquaredLoss`, with a return gradient through `self.backward`. Each actor has exactly **one** guest-owned `state { ... }`; there are no actor-owned ordinary fields. Every state read/write is inside `using state.read` or `using state.write(critical ...)`, with `with state.read, state.write` effects declared. Forward and backward actor sends happen after state loans have closed. Local state records old weights, the saved forward activation, single-step completion receipts and version increments, rejecting local duplicate updates.
+
+With the fixed int example `x=3`, `w0=2`, `w1=3`, target `16`, forward gives `y=18`; the loss upstream gradient is `4`; `dW1=24` and `dW0=36`. The source uses `ActorUtils.pipe` and `expect_pipeline(source, 36)` as an **unverified real-guest acceptance target**. The independent host contract runs 8 structure/calculus checks against this source. Integer gradients are deliberately hand-coded here: **this does NOT claim built-in tensor/autograd reverse graphs are connected to pipe actors**. That integration is still required before multi-stage NN training is achieved.
+
+**Known correctness limitation:** the two trainable actors currently commit locally on gradient receipt, so a crash between downstream and upstream commits can leave inconsistent versions. This fixed, single-sample bootstrap is a control-flow demonstration, NOT a crash-atomic multi-actor optimizer. True training needs prepared candidate weights, a coordinated step manifest, durable recovery/fencing, graph/step/microbatch identifiers on messages, and clean cancellation of all staged candidate states. Do not use the bootstrap as a production optimizer.
+
+Do not equate an isolated JavaScript host simulation with native LLVM/JVM actor or RW-gate execution. The underlying runtime, parser, actor mail delivery and dynamic graph topology need exact-source compiled tests before promotion.
+
+
+## Hardening checkpoint: executor identity and atomic backward read (October 18)
+
+- The compiler verifier now rejects a missing/nonabsolute/nonexecutable Oreslang binary, an absent or malformed SHA-256 pin, mismatched executable bytes, missing dependency worktrees, and any of six mismatched Git blobs **before** running the guest. The binary hash verifies the executable file itself; it is not a guarantee of signatures/trust, dynamically linked dependency identity, or the absence of in-place mutation after verification.
+- The experimental actor pipe's hidden stage now copies `(saved_input, old_weight, version, issued, applied)` under **one logical state.read admission** rather than two independent read loans. This prevents mixed-generation input/weight observations if concurrent actor executions are enabled. Publication uses the observed version as its comparison value. The tuple-form source remains a proposed parser/compiler acceptance target, not proof of executed Oreslang support.
+- Independent source and calculus host checks pass 12/12 for CPU integration and 10/10 for the actor pipe in an isolated JavaScript harness; those checks do not exercise the actual Oreslang interpreter or state lock.
+- A separate **source-free** alternative-org workflow, `sagitta-stack/sagitta-infra` PR #31, [run #39155558378](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155558378), completed 39/39 Node host-only tests at pinned SHA `703f685b28ac1132af59e460a28fb1ad063b1f2f`. The tests include the independently authored interleaving model that demonstrates why split reads are unsafe. Log markers explicitly say Oreslang guest execution and private-tree mirroring did NOT occur.
+
+**Still open:** source-org worker allocation, compiled Java and LLVM tests, numeric guest stdout, compiler-owned immutable tensor leases, actual multi-thread RW gate integration, per-message run/graph/step/actor epoch identity, and distributed commit/recovery.
+
+
+## Forward-replay and runner-negative gates
+
+The experimental `InputWeight` and `HiddenWeight` actors now reject repeated forward messages in their respective short exclusive state callbacks, before overwriting a saved activation or emitting a duplicate downstream forward. `SquaredLoss` likewise rejects a duplicate prediction before emitting an additional backward gradient. The proposed tuple-shaped `(admitted, value)` loan result and single coherent `(input, weight, version, issued, applied)` read snapshot require **actual parser/typing/borrow checker execution**; source-pattern checks alone do not establish that the compiler supports this form.
+
+The CPU guest verifier now has `tests/supervised_cpu_guest_guard.test.mjs`, a Node host subprocess test using a fake local executable. It must reject nonexistent, relative, nonexecutable, unpinned, malformed-hash and hash-mismatched compiler paths **before** the fake executable can run. The test has been added to the source-owned host-only workflow; until a real job allocates a runner, this **subprocess test is not verified executed**.
+
+Current independent source/host model checks cover 12 CPU and 12 actor cases via an isolated V8 harness, but do not establish guest runtime safety or actual multi-threaded reader/writer scheduling. The separate source-free alternate-org runner's latest audited [Actions #39155558378](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155558378) provides real Node 22 evidence for 39 synthetic cases, explicitly not Oreslang source.
+
+
+## Exact source-tree admission and updated CI evidence
+
+The verifier now checks three **specific dependency Git commit heads** and clean working trees before checking the six imported library blobs:
+
+- `oreslang-data-science`: `3d9d273a8fd705c321d60d281bd4ced88afb55b6`
+- `oreslang-tensor`: `e0c2aec1a050f30d06b359f4662adf5f5604bbe6`
+- `oreslang-autograd`: `455fd9ffb403bb25614103ce6a101cba43e63c2c`
+
+The source heads are **immutable test pins**, not a claim they are the latest feature branches forever. An operator must use those exact reviewed commits in checked-out sibling repositories; changed branches require renewed compatibility review and intentional pin updates. The verifier also demands `ORESLANG_BIN_SHA256` for the executable, and tests the six expected library blob SHA-1 identities. This prevents an apparently identical small set of imported files from silently masking a different tracked dependency revision. The working-tree check rejects tracked changes and untracked files reported by Git; ignored/build/runtime dependencies still need separate reproducibility guarantees.
+
+A new real Node subprocess denial-test suite is committed under `tests/supervised_cpu_guest_guard.test.mjs` but **not executed in successful source-org Actions**. Source-org [run #39156081484](https://github.com/ores-truffle-oreslang/oreslang-ml/actions/runs/39156081484) failed with no step evidence, so neither its Node tests nor Oreslang guest code is certified. The independently authored alternative-org [source-free run #39155779350](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155779350) instead completed **40/40** host mathematical/protocol tests at its own head SHA `aa026e01b9479694906817b570f250edb09bd550`. Its logs explicitly confirm no private Oreslang source mirror or guest execution. Separate budgets are useful for model/oracle tests, but cannot override source-export policy.
+
+## Latest acceptance and CI checkpoint
+
+The CPU guest now asserts the exact initial loss (84), bias gradient (-32), weight gradient (-68), per-row weight VJPs [0,-6,-20,-42], and unchanged masked-row gradient. Reviewed training fixture Git blob: `0373080c2500df49e476c777c5598463ca126aac`, verified before guest execution.
+
+The real-guest gate requires SHA-256 of the compiler entrypoint, three exact clean dependency Git commits, six dependency source blobs, the fixture blob, and a bounded subprocess watchdog. Its timeout defaults to 120 seconds, with an upper bound of 600 seconds and five seconds of termination grace. An unapproved or missing dependency, binary mismatch, absent watchdog, nonzero exit, timeout, or unexpected stdout is never accepted as a passing guest execution.
+
+Independent source-free [GitHub Actions run #39158575443](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39158575443) passed **47/47** Node tests on exact funded test revision `c03d7a1db62feb8d843d2ad1ee61429cd68f3b3e`. It tested mathematics and protocol models only; no private Oreslang source was transferred or executed. In the Java compiler [PR #1347](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1347), the scalar actor guest acceptance suite now explicitly invokes `OwnershipChecker.check`.
+
+Real source-org Java/ML Actions still failed without recorded runner steps. Consequently compiled Java/LLVM execution, Oreslang guest stderr/stdout, and source-owned subprocess-denial tests remain unverified. Keep both PRs draft.
+
+
+## Integer-mail boundary hardening
+
+The experimental fixed-example actor bootstrap now bounds each numeric mailbox payload **before** multiplication, state writes, or backward propagation. The two forward stages accept only signed integer magnitudes at most 1000; the loss actor bounds predictions at 1000; backward stages bound upstream gradient magnitudes at 4096. This is a deliberately narrow integer demonstration, not a generic NN training range or an integer-overflow-proof compiler primitive. Under the fixture's initial weights (2 and 3) and single accepted step, admitted arithmetic fits signed 32-bit ranges. New actor source/calculus checks verify the five admission guards, fixed gradients, and replay fencing.
+
+**Remaining unsolved protocol hazard:** the actor pipe's local per-stage optimizer publication is not globally atomic or durable. A failed send or process crash between local commits may strand stages at different versions. Numeric admission does not authenticate a gradient's originating run, graph, microbatch, actor incarnation, or weight version; typed provenance envelopes and coordinated recovery are merge blockers.
+
+[Funded source-free Actions run #39160931019](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39160931019) passed **55/55** independently authored numerical and message-model checks at exact carrier head `d391c1b5768438ee71080f8ba3cac6ac6282410c`. This run included eight new bounded-integer/replay tests. It explicitly did **not** use private Oreslang source or execute the Oreslang runtime. Oreslang compiler and actor-lane execution are still unverified.
+
+
+## Cross-stage read-loan parity and source-free overflow-fencing audit
+
+The experimental two-stage integer pipeline's `InputWeight` backward handler now captures `(saved_input, version, issued, applied)` **in one read loan**. It rejects unissued, already-applied or stale-version work before arithmetic, then compares the exact observed version under a separate short exclusive state commit. `HiddenWeight` already uses the corresponding single-loan five-field snapshot. This reduces the chance of mixing forward-context generations if actor execution becomes multithreaded; it does **not** provide authenticated gradient messages or distributed atomic commit. Sixteen independent V8 source/calculus checks now pass against the updated bootstrap. Real .ores compilation remains unavailable.
+
+An audit of the **source-free** actor reference model discovered that forward evaluation could overflow to infinity after reserving a microbatch, poisoning capacity. The model now checks a finite output before admission and tests that rejected attempts leave capacity and saved state unchanged. Additional negative cases prohibit direct and nested state-container escape, read-only mutation, closure returns and caller changes to previously admitted envelopes. The independently funded [Actions run #39165741794](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39165741794) passed **71/71 actual Node host tests** at exact source-free test head `3a3ee4f81121fbe602b1a6c1eb2c817529aa1d43`. Its job explicitly states no Oreslang guest execution and no private source mirroring. These synthetic models and source-pattern checks must not be described as compiler/actor runtime proofs.
+
+Source-private cross-org exact-tree mirroring remains blocked under unresolved P0 security issues #22 and #77 pending independent approval, even when the destination repository has GitHub Actions minutes. Keep both ML and Java guest PRs as drafts until an authorized private-source runner actually executes compilation and lifecycle/ownership verification.

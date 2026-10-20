@@ -1,0 +1,9 @@
+define actor BadActor as
+    state { weight: int = 1; }
+    private async bad(Future<int> f): int with state.read, suspend {
+        return using state.read(|s| -> {
+            const result = await f;
+            return s.weight + result;
+        });
+    }
+end

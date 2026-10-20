@@ -1,0 +1,64 @@
+// A real .ores guest acceptance target for typed scalar success/error
+// separation; NOT EXECUTED until an authorized compiler runner is available.
+import type ScalarTrainingError from '../src/training/scalar_checked_result';
+import fnc checked_scalar_forward, checked_scalar_gradient,
+    checked_scalar_candidate, checked_scalar_retirement
+    from '../src/training/scalar_checked_result';
+
+pub routine main(): void {
+    val Result<int, ScalarTrainingError> negative_success =
+        checked_scalar_forward(-2, 4);
+    if negative_success.is_err() || negative_success.unwrap() != -8; do
+        stdio.println("ORES_TYPED_SCALAR_FAIL negative-success");
+        return;
+    fi
+    if !checked_scalar_forward(10, 10001).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL input-error");
+        return;
+    fi
+    val Result<int, ScalarTrainingError> partial = checked_scalar_gradient(2, 3, 0, 0);
+    if partial.is_err() || partial.unwrap() != 6; do
+        stdio.println("ORES_TYPED_SCALAR_FAIL gradient");
+        return;
+    fi
+    if !checked_scalar_gradient(2, 10001, 0, 0).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL gradient-error");
+        return;
+    fi
+    // No first gradient may be supplied without an actual first receipt.
+    if !checked_scalar_gradient(1, 1, 1, 0).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL forged-zero-receipts");
+        return;
+    fi
+    if !checked_scalar_gradient(1, 1, 100000001, 1).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL forged-single-receipt");
+        return;
+    fi
+    val Result<int, ScalarTrainingError> allowed_next =
+        checked_scalar_gradient(1, 1, 100000000, 1);
+    if allowed_next.is_err() || allowed_next.unwrap() != 100000001; do
+        stdio.println("ORES_TYPED_SCALAR_FAIL valid-single-receipt");
+        return;
+    fi
+    val Result<int, ScalarTrainingError> commit = checked_scalar_candidate(10, 5, 2, 1, 1);
+    if commit.is_err() || commit.unwrap() != 5; do
+        stdio.println("ORES_TYPED_SCALAR_FAIL candidate");
+        return;
+    fi
+    if !checked_scalar_candidate(5, 200000000, 2, 2, 2).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL rejected-candidate");
+        return;
+    fi
+    val Result<int, ScalarTrainingError> retired =
+        checked_scalar_retirement(5, 200000000, 2, 2, 2);
+    if retired.is_err() || retired.unwrap() != 3; do
+        stdio.println("ORES_TYPED_SCALAR_FAIL retirement");
+        return;
+    fi
+    if !checked_scalar_retirement(10, 5, 2, 1, 1).is_err(); do
+        stdio.println("ORES_TYPED_SCALAR_FAIL invalid-retirement");
+        return;
+    fi
+    stdio.println("ORES_TYPED_SCALAR_RESULT_PASS");
+    return;
+}
