@@ -33,15 +33,21 @@ function candidate(p,lr=0.02) {
 // must enforce exclusivity and ownership with its real sealed gate.
 class Stage {
   constructor() {
-    this.state={...params,version:1,committedEpoch:0};
+    this.state={...params,run:101,graph:202,incarnation:1,version:1,committedEpoch:0};
   }
   read() {return Object.freeze({...this.state});}
-  commit(snap, next, epoch) {
+  commit(snap, next, epoch, expectedRun=snap.run, expectedGraph=snap.graph,
+         expectedIncarnation=snap.incarnation) {
     if(!finite(next))return "NONFINITE_CANDIDATE";
     const s=this.state;
+    if(s.run!==snap.run || snap.run!==expectedRun)return "STALE_RUN";
+    if(s.graph!==snap.graph || snap.graph!==expectedGraph)return "STALE_GRAPH";
+    if(s.incarnation!==snap.incarnation || snap.incarnation!==expectedIncarnation)
+      return "STALE_INCAR";
     if(s.version!==snap.version || s.committedEpoch!==snap.committedEpoch
        || epoch!==s.committedEpoch+1)return "STALE_SNAPSHOT";
-    this.state={...next,version:s.version+1,committedEpoch:epoch};
+    this.state={...next,run:s.run,graph:s.graph,incarnation:s.incarnation,
+      version:s.version+1,committedEpoch:epoch};
     return "OK";
   }
 }
@@ -49,8 +55,16 @@ test("actor has one state schema, only primitive snapshots and one all-parameter
   assert.equal((source.match(/\bstate\s*\{/g)||[]).length,1);
   assert.doesNotMatch(source,/self\.state\b/);
   assert.match(source,/using state\.read\(\|s\|\s*->\s*\(/);
-  assert.match(source,/const \(w1, b1, w2, b2, pinned_version, prior_epoch\)/);
+  assert.match(source,/pinned_run, pinned_graph, pinned_incarnation/);
+  assert.match(source,/Result<float, TwoLayerTrainingError>/);
+  assert.doesNotMatch(source,/Result<float, String>|return Err\("/);
+  for(const gate of ["run_id","graph_id","incarnation"]){
+    assert.match(source,new RegExp(gate+": int ="));
+  }
   assert.match(source,/self\.handle_state\(critical write \|s\| -> \{/);
+  assert.match(source,/s\.run_id != pinned_run \|\| pinned_run != expected_run/);
+  assert.match(source,/s\.graph_id != pinned_graph \|\| pinned_graph != expected_graph/);
+  assert.match(source,/s\.incarnation != pinned_incarnation/);
   assert.match(source,/s\.version != pinned_version \|\| s\.committed_epoch != prior_epoch/);
   assert.match(source,/import class TapeF64/);
   assert.match(source,/forward_checked_into\(/);
@@ -72,8 +86,18 @@ test("source uses autograd rather than handwritten gradient formulas",()=>{
   assert.match(source,/gradients\[2\]/);
   assert.match(source,/gradients\[3\]/);
   assert.match(source,/gradients\[4\]/);
-  assert.match(source,/return Err\("NONFINITE_GRADIENT"\)/);
-  assert.match(source,/return Err\("NONFINITE_CANDIDATE"\)/);
+  assert.match(source,/TwoLayerTrainingError\.NONFINITE_GRADIENT\(\)/);
+  assert.match(source,/TwoLayerTrainingError\.NONFINITE_CANDIDATE\(\)/);
+  const declaration=source.match(/define enum TwoLayerTrainingError as\n([\s\S]*?)\nend/);
+  assert(declaration);
+  const cases=[...declaration[1].matchAll(/^\s+([A-Z_]+) = (\d+)$/gm)].map(m=>m[1]);
+  assert.deepEqual(cases,["STALE_RUN","STALE_GRAPH","STALE_INCAR","STALE_EPOCH",
+    "COUNTER_EXHAUSTED","FORWARD_REJECTED","BACKWARD_REJECTED",
+    "NONFINITE_GRADIENT","NONFINITE_CANDIDATE","STALE_SNAPSHOT"]);
+  const failureMatch=source.slice(source.indexOf("match problem over"),
+    source.indexOf("end",source.indexOf("match problem over")));
+  for(const name of cases)assert.match(failureMatch,new RegExp("on TwoLayerTrainingError\\."+name+" ->"));
+  assert.doesNotMatch(failureMatch,/on _|default/);
 });
 test("independent per-parameter gradients pass finite differences",()=>{
   for(const p of [params,{w1:.7,b1:.5,w2:1.3,b2:-.2}]){
@@ -115,18 +139,39 @@ test("two computations from same pinned version cannot both publish",()=>{
   assert.equal(pin.version,1);
   assert.equal(pin.w1,1); // copied old version remains immutable
 });
+test("run, graph and incarnation mismatches are fail-atomic before snapshot publication",()=>{
+  for(const [field,bad,reason] of [
+    ["run",100,"STALE_RUN"],["graph",201,"STALE_GRAPH"],["incarnation",0,"STALE_INCAR"]
+  ]){
+    const stage=new Stage(),snap=stage.read(),{next}=candidate(snap);
+    const before=structuredClone(stage.state);
+    const args={run:snap.run,graph:snap.graph,incarnation:snap.incarnation,[field]:bad};
+    assert.equal(stage.commit(snap,next,1,args.run,args.graph,args.incarnation),reason);
+    assert.deepEqual(stage.state,before);
+  }
+  for(const [field,bad,reason] of [
+    ["run",102,"STALE_RUN"],["graph",203,"STALE_GRAPH"],["incarnation",2,"STALE_INCAR"]
+  ]){
+    const stage=new Stage(),snap=stage.read(),{next}=candidate(snap);
+    stage.state={...stage.state,[field]:bad};
+    const before=structuredClone(stage.state);
+    assert.equal(stage.commit(snap,next,1),reason);
+    assert.deepEqual(stage.state,before);
+  }
+});
+
 test("version agreement alone is insufficient: epoch and order also fence writes",()=>{
   const stage=new Stage(),snap=stage.read(),{next}=candidate(snap);
   assert.equal(stage.commit(snap,next,2),"STALE_SNAPSHOT");
   assert.equal(stage.commit({...snap,committedEpoch:-1},next,1),"STALE_SNAPSHOT");
-  assert.deepEqual(stage.state,{...params,version:1,committedEpoch:0});
+  assert.deepEqual(stage.state,{...params,run:101,graph:202,incarnation:1,version:1,committedEpoch:0});
 });
 test("nonfinite candidate is rejected before any of four parameters change",()=>{
   for(const bad of [Infinity,-Infinity,NaN]){
     const stage=new Stage(),pin=stage.read();
     const next={...candidate(pin).next,w2:bad};
     assert.equal(stage.commit(pin,next,1),"NONFINITE_CANDIDATE");
-    assert.deepEqual(stage.state,{...params,version:1,committedEpoch:0});
+    assert.deepEqual(stage.state,{...params,run:101,graph:202,incarnation:1,version:1,committedEpoch:0});
   }
 });
 test("stale-step interleaving deterministically rejects across parameter candidates",()=>{
