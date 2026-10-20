@@ -10,3 +10,8 @@ if [ ! -f "../oreslang-autograd/src/tape.ores" ]; then
 fi
 "$ORESLANG_BIN" examples/train_with_autograd.ores
 "$ORESLANG_BIN" examples/train_two_layer_autograd.ores
+if [ ! -f "../oreslang-tensor/src/row_batches.ores" ]; then
+  echo "UNCONFIGURED: clone oreslang-tensor row-batch branch beside oreslang-ml" >&2
+  exit 78
+fi
+"$ORESLANG_BIN" examples/train_aligned_dataset.ores
