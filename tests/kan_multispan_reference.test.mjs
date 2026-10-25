@@ -166,3 +166,13 @@ test('linear-coefficient shape has closed end-to-end monotone output',()=>{
   near(deboor(knots,coeff,.5),.5);
   near(deboor(knots,coeff,1),1);
 });
+
+test('triple interior knot chooses right-hand derivative, distinct from left',()=>{
+  const knots=[0,0,0,0,.5,.5,.5,1,1,1,1];
+  const coeff=[0,.1,.2,.3,.8,.5,.6];
+  const x=.5,h=1e-7;
+  const right=(deboor(knots,coeff,x+h)-deboor(knots,coeff,x))/h;
+  const left=(deboor(knots,coeff,x)-deboor(knots,coeff,x-h))/h;
+  near(derivative(knots,coeff,x),right,2e-5);
+  assert.ok(Math.abs(right-left)>.1);
+});
