@@ -1,0 +1,35 @@
+name: KAN MFKAN CPU math (host reference only)
+on:
+  pull_request:
+    paths:
+      - "src/kan/cubic_bspline_f64.ores"
+      - "examples/kan_mfkan_scalar_smoke.ores"
+      - "reference/kan_mfkan_reference.mjs"
+      - "tests/kan_mfkan_reference.test.mjs"
+      - "docs/KAN_MFKAN_CPU_REFERENCE_V1.md"
+      - ".github/workflows/kan-mfkan-host-reference.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  numerical-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify exact requested Git revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Execute bounded independent host numerical tests
+        run: node --test tests/kan_mfkan_reference.test.mjs
+      - name: Verify host oracle parses
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs
+      - name: Mark evidence scope
+        run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"
