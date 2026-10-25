@@ -34,6 +34,35 @@ node --test tests/kan_multispan_reference.test.mjs
 
 A local Node 22 test development copy passed **10/10** cases. The exact committed test file must still be independently verified against the active PR head. That alone is not proof the committed Git blob executed under GitHub Actions; record exact-head checks independently.
 
+## October 25, 2026: input-VJP and exact-blob audit
+
+- Public `kan_clamped_cubic_vjp_input_f64` now consumes a separately
+  range-checked upstream gradient, evaluates a checked local input derivative,
+  and rejects the **product** when it exceeds the bounded f64 profile.
+  An accepted 3.0 derivative times an accepted 1,000,000 upstream produces
+  3,000,000 and must fail closed. This does not publish an optimizer update.
+- `examples/kan_multispan_cubic_smoke.ores` now checks successful positive
+  input VJP, overflow rejection, upstream rejection, and a triple-interior-knot
+  right-hand derivative distinct from the left derivative.
+- Actual guest verifier pins exactly kernel blob
+  `9413bab298e04a6d0cf006711c59d71ebee91585` and fixture blob
+  `93732a26c708c1e06604c6b5d1127ed87fe3ba28`.
+- A newly committed source-free test
+  `tests/kan_multispan_input_vjp.test.mjs` (blob
+  `d2c9fb7c6cfe51d57f4b6c1862dd02699a92787a`) passed **5/5**
+  tests on local Node 22.16.0, including 2,000 finite differences.
+- Both exact committed host suites, totaling **18/18** test functions,
+  passed inside an isolated V8 harness. That is distinct from native
+  Node 22 execution of both suites together and is **not** Oreslang guest
+  compilation.
+- Source-org GitHub Actions was unable to start runner steps at the last
+  observed head; such runs are **NOT_EXECUTED**, not numerical failures.
+- `oreslang-source.java` protected-governance private-CI destination
+  allowlist contains no approved numeric-ID destination; a comment-only
+  candidate is **not** an authorization to mirror private source. Do not
+  use direct connector tree writes or an unrelated private test repository
+  as a workaround.
+
 ## Compilation and promotion gates
 
 1. Run the unchanged .ores smoke fixture with an exact pinned Java/GraalVM Oreslang compiler, compare stdout and stderr, and test negative rejection **inside** the compiled guest.

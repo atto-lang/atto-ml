@@ -27,11 +27,11 @@ if [[ -n "$(git -C "$root" status --porcelain --untracked-files=all)" ]]; then
   echo "NOT_EXECUTED: source worktree is not clean" >&2
   exit 2
 fi
-if [[ "$(git -C "$root" hash-object -- "$kernel")" != "78f1b36287154ca81107d67fa94f5e7275b3caa2" ]]; then
+if [[ "$(git -C "$root" hash-object -- "$kernel")" != "9413bab298e04a6d0cf006711c59d71ebee91585" ]]; then
   echo "NOT_EXECUTED: multi-span Oreslang kernel Git blob changed" >&2
   exit 2
 fi
-if [[ "$(git -C "$root" hash-object -- "$source")" != "fd7b0ee4ede91976d0171c97941afe541bced29d" ]]; then
+if [[ "$(git -C "$root" hash-object -- "$source")" != "93732a26c708c1e06604c6b5d1127ed87fe3ba28" ]]; then
   echo "NOT_EXECUTED: multi-span Oreslang fixture Git blob changed" >&2
   exit 2
 fi
@@ -76,4 +76,4 @@ if ! cmp -s "$tmp/expected" "$tmp/stdout"; then
   echo "GUEST=OUTPUT_MISMATCH: no pass receipt" >&2
   exit 1
 fi
-printf 'GUEST=PASS; SOURCE_COMMIT=%s; COMPILER_SHA256=%s; GUEST_FIXTURE_BLOB=fd7b0ee4ede91976d0171c97941afe541bced29d; KAN_KERNEL_BLOB=78f1b36287154ca81107d67fa94f5e7275b3caa2\n' "$EXPECTED_SOURCE_COMMIT" "$compiler_digest"
+printf 'GUEST=PASS; SOURCE_COMMIT=%s; COMPILER_SHA256=%s; GUEST_FIXTURE_BLOB=93732a26c708c1e06604c6b5d1127ed87fe3ba28; KAN_KERNEL_BLOB=9413bab298e04a6d0cf006711c59d71ebee91585\n' "$EXPECTED_SOURCE_COMMIT" "$compiler_digest"

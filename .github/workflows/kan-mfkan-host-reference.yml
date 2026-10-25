@@ -8,6 +8,7 @@ on:
       - "tests/kan_mfkan_reference.test.mjs"
       - "tests/kan_mfkan_independent_deboor.test.mjs"
       - "tests/kan_multispan_reference.test.mjs"
+      - "tests/kan_multispan_input_vjp.test.mjs"
       - "tests/kan_multispan_mfkan_math.test.mjs"
       - "src/kan/mfkan_clamped_cubic_f64.ores"
       - "examples/kan_multispan_mfkan_smoke.ores"
@@ -39,9 +40,9 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute bounded independent host numerical tests
-        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_mfkan_math.test.mjs
+        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_multispan_mfkan_math.test.mjs
       - name: Verify host oracle parses
-        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_mfkan_math.test.mjs
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs tests/kan_multispan_mfkan_math.test.mjs
       - name: Syntax-check pinned actual-guest verifier (does not execute guest)
         run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-multispan-mfkan-guest.sh
       - name: Mark evidence scope

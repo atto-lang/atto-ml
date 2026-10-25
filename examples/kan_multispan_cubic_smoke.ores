@@ -3,7 +3,7 @@
 // Execute on pinned Java/Graal and LLVM guest compilers; no runner pass yet.
 import module Assert from "std/assert";
 import fnc kan_clamped_cubic_f64, kan_clamped_cubic_dinput_f64,
-           kan_clamped_cubic_dcoeff_f64
+           kan_clamped_cubic_dcoeff_f64, kan_clamped_cubic_vjp_input_f64
     from "../src/kan/clamped_cubic_bspline_f64";
 
 pub routine main(): void {
@@ -28,6 +28,33 @@ pub routine main(): void {
     Assert.true_throws(dinput.unwrap() > 0.749999 && dinput.unwrap() < 0.750001);
     Assert.true_throws(dlast.unwrap() > 0.999999 && dlast.unwrap() < 1.000001);
     Assert.true_throws(dinactive.unwrap() == 0.0);
+
+    // The upstream adjoint is multiplied inside a checked native Oreslang
+    // operation, not by an unchecked caller-side float expression.
+    val Result<float, String> input_vjp =
+        kan_clamped_cubic_vjp_input_f64(0.5,knots,coeff,2.0);
+    Assert.true_throws(input_vjp.is_ok());
+    Assert.true_throws(input_vjp.unwrap() > 1.499999
+        && input_vjp.unwrap() < 1.500001);
+    val List<float> steep = arr[0.0,1.0,2.0,3.0,4.0];
+    Assert.true_throws(
+        kan_clamped_cubic_vjp_input_f64(0.5,knots,steep,1000000.0).is_err()
+    );
+    Assert.true_throws(
+        kan_clamped_cubic_vjp_input_f64(0.5,knots,coeff,1000001.0).is_err()
+    );
+
+    // Triple interior knot: x==0.5 selects the right-hand derivative, even
+    // when the left derivative is different (0.6 vs 3.0 in this fixture).
+    val List<float> triple_knots =
+        arr[0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,1.0,1.0,1.0];
+    val List<float> triple_coeff =
+        arr[0.0,0.1,0.2,0.3,0.8,0.5,0.6];
+    val Result<float, String> right_hand =
+        kan_clamped_cubic_dinput_f64(0.5,triple_knots,triple_coeff);
+    Assert.true_throws(right_hand.is_ok());
+    Assert.true_throws(right_hand.unwrap() > 2.999999
+        && right_hand.unwrap() < 3.000001);
 
     // Validation must fail closed rather than silently clipping/reordering.
     Assert.true_throws(kan_clamped_cubic_f64(-0.001,knots,coeff).is_err());
