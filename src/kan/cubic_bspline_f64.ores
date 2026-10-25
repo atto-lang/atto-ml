@@ -28,7 +28,11 @@ pub fnc kan_cubic_segment_f64(
     val float b1 = ((3.0 * t2 * t) - (6.0 * t2) + 4.0) / 6.0;
     val float b2 = ((-3.0 * t2 * t) + (3.0 * t2) + (3.0 * t) + 1.0) / 6.0;
     val float b3 = (t2 * t) / 6.0;
-    return Ok((b0 * c0) + (b1 * c1) + (b2 * c2) + (b3 * c3));
+    val float output = (b0 * c0) + (b1 * c1) + (b2 * c2) + (b3 * c3);
+    if !kan_bounded_f64(output); do
+        return Err("KAN_OUTPUT_OUT_OF_BOUNDS");
+    fi
+    return Ok(output);
 }
 
 // Analytic derivative for VJP input-gradient accumulation.
@@ -46,7 +50,11 @@ pub fnc kan_cubic_segment_dinput_f64(
     val float d1 = ((9.0 * t * t) - (12.0 * t)) / 6.0;
     val float d2 = ((-9.0 * t * t) + (6.0 * t) + 3.0) / 6.0;
     val float d3 = (t * t) / 2.0;
-    return Ok((d0 * c0) + (d1 * c1) + (d2 * c2) + (d3 * c3));
+    val float gradient = (d0 * c0) + (d1 * c1) + (d2 * c2) + (d3 * c3);
+    if !kan_bounded_f64(gradient); do
+        return Err("KAN_DINPUT_OUT_OF_BOUNDS");
+    fi
+    return Ok(gradient);
 }
 
 // Derivative with respect to one of the four edge coefficients.
@@ -82,6 +90,10 @@ pub fnc mfkan_residual_blend_f64(
         || !kan_bounded_f64(nonlinear_correction) || !kan_unit_f64(mix); do
         return Err("MFKAN_INVALID_CORRECTION");
     fi
-    return Ok(low + (mix * linear_correction)
-        + ((1.0 - mix) * nonlinear_correction));
+    val float combined = low + (mix * linear_correction)
+        + ((1.0 - mix) * nonlinear_correction);
+    if !kan_bounded_f64(combined); do
+        return Err("MFKAN_OUTPUT_OUT_OF_BOUNDS");
+    fi
+    return Ok(combined);
 }
