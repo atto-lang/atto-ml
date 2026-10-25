@@ -61,14 +61,33 @@ invalid alpha and out-of-quota dimensions also reject before computation.
   fixture, expected output `ORES_KAN_MFKAN_SCALAR_PASS`.
 - `reference/kan_mfkan_reference.mjs`: independent Node 22 reference for
   a multi-edge KAN layer, MFKAN high/low composition and analytic VJPs.
-- `tests/kan_mfkan_reference.test.mjs`: 11 host tests covering basis
+- `tests/kan_mfkan_reference.test.mjs`: 17 host tests covering basis
   identities, finite differences, fan-in, freezing, toy loss reduction
   and fail-closed invalid numerical inputs.
+- `tests/kan_mfkan_independent_deboor.test.mjs`: four independent, source-free
+  de Boor/property/gradient tests with 10,000 seeded span trials and 2,000
+  finite-difference gradient trials.
 - A source-local CI workflow limited to **HOST_REFERENCE_ONLY** checks.
 
 Run the host suite:
 
-    node --test tests/kan_mfkan_reference.test.mjs
+    node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs
+
+## Audit and verification notes (2026-10-24)
+
+- Explicitly reject out-of-quota **derived** Oreslang forward/derivative/blend
+  values, not merely their individual bounded inputs.
+- Check every final host VJP field, including the mixture derivative and the
+  fan-in input gradient; avoid temporary copies of all gradient arrays.
+- 17/17 host-reference tests executed using exact fetched branch blobs in an
+  isolated V8 harness (not a native Node 22 Actions run).
+- Four independent source-free property tests executed in Node 22 locally;
+  pin and rerun the exact committed blob before recording full remote evidence.
+- GitHub Actions jobs reported **zero executed steps**; no runner-backed
+  compiler, Node CI, AOT, tensor/autograd or Java/LLVM guest pass is claimed.
+- Do not transfer private source into a different org simply because another
+  account has spare GitHub Actions capacity; require independently reviewed
+  destination authorization first.
 
 ## Forward migration to general-purpose define model
 
