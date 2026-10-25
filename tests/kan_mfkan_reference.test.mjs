@@ -143,3 +143,41 @@ test('fail closed for shapes, domain, quota, invalid numerical values, and non-n
   assert.throws(()=>mfkanForward({...cfg,low:{...cfg.low,bias:[1.2]}},[.3,.3]),/\[0,1\]/);
   assert.throws(()=>mfkanForward({...cfg,highNonlinear:{...cfg.highNonlinear,inputs:2}},[.3,.3]),/expects/);
 });
+
+test('scalar guest source guards derived results before Ok publication',()=>{
+  assert.match(source,/if !kan_bounded_f64\(combined\)/);
+  assert.match(source,/if !kan_bounded_f64\(gradient\)/);
+  assert.match(source,/if !kan_bounded_f64\(output\)/);
+  assert.match(source,/MFKAN_OUTPUT_OUT_OF_BOUNDS/);
+});
+test('edge VJP rejects out-of-profile accumulated derivative',()=>{
+  assert.throws(()=>cubicEdgeVjp(.5,[1e6,1e6,-1e6,-1e6],1e6),/bounded finite/);
+  assert.throws(()=>cubicEdgeVjp(.5,[1,2,3,4],NaN),/bounded finite/);
+});
+test('layer VJP rejects overflowing fan-in and retains an unmodified input',()=>{
+  const huge={inputs:2,outputs:2,coeff:[
+    1e6,1e6,-1e6,-1e6,1e6,1e6,-1e6,-1e6,
+    1e6,1e6,-1e6,-1e6,1e6,1e6,-1e6,-1e6
+  ],bias:[0,0]};
+  const x=[.5,.5],copy=[...x];
+  assert.throws(()=>kanLayerVjp(huge,x,[1e6,1e6]),/bounded finite/);
+  assert.deepEqual(x,copy);
+});
+test('MFKAN rejects out-of-profile mix derivative even when forward fits',()=>{
+  const cfg=fixture();cfg.highLinear[3]=100000;
+  const x=[.2,.3];
+  assert.ok(Number.isFinite(mfkanForward(cfg,x).high));
+  assert.throws(()=>mfkanVjp(cfg,x,1e6,{freezeLow:true}),/bounded finite/);
+});
+test('MFKAN rejects malformed input before accessing length',()=>{
+  assert.throws(()=>mfkanForward(fixture(),null),/nonempty numeric vector/);
+  assert.throws(()=>mfkanForward(fixture(),{}),/nonempty numeric vector/);
+  assert.throws(()=>mfkanForward(fixture(),[]),/nonempty numeric vector/);
+});
+test('low and high bias VJPs match direct numerical differences',()=>{
+  const cfg=fixture(), x=[.26,.47],g=mfkanVjp(cfg,x,.6,{freezeLow:false});
+  const target=c=>.6*mfkanForward(c,x).high;
+  const lo=cfg.low.bias[0],hi=cfg.highNonlinear.bias[0];
+  close(g.lowBiasGrad[0],derivative(v=>target({...cfg,low:{...cfg.low,bias:[v]}}),lo));
+  close(g.highNonlinearBiasGrad[0],derivative(v=>target({...cfg,highNonlinear:{...cfg.highNonlinear,bias:[v]}}),hi));
+});
