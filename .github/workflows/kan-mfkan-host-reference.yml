@@ -10,6 +10,8 @@ on:
       - "tests/kan_multispan_reference.test.mjs"
       - "src/kan/clamped_cubic_bspline_f64.ores"
       - "examples/kan_multispan_cubic_smoke.ores"
+      - "scripts/verify-kan-multispan-guest.sh"
+      - "docs/KAN_MULTISPAN_CLAMPED_CUBIC_V1.md"
       - "docs/KAN_MFKAN_CPU_REFERENCE_V1.md"
       - ".github/workflows/kan-mfkan-host-reference.yml"
   workflow_dispatch:
@@ -35,5 +37,7 @@ jobs:
         run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs
       - name: Verify host oracle parses
         run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs
+      - name: Syntax-check pinned actual-guest verifier (does not execute guest)
+        run: bash -n scripts/verify-kan-multispan-guest.sh
       - name: Mark evidence scope
-        run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"
+        run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; MULTISPAN_NATIVE=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"
