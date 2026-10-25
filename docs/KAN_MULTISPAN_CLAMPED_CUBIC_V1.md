@@ -25,13 +25,14 @@ The coefficient VJP for coefficient `i` is `upstream * N[i,3](x)`, zero outside 
 
 - `src/kan/clamped_cubic_bspline_f64.ores`: candidate native Oreslang forward/input-derivative/coefficient-VJP implementation, requiring no native numerical framework.
 - `examples/kan_multispan_cubic_smoke.ores`: compiled guest acceptance fixture. Exact stdout marker: `ORES_KAN_MULTISPAN_PASS`. Includes both boundaries, midpoint, derivative, an inactive coefficient and negative descriptors.
-- `tests/kan_multispan_reference.test.mjs`: independent Node source-free numerical tests, 10,000 seeded de Boor versus Cox-de Boor comparisons, 2,000 finite-difference derivative trials, 800 complete coefficient-gradient fixture sweeps, knot endpoint/multiplicity tests, bounds and malformed-input rejection.
+- `scripts/verify-kan-multispan-guest.sh`: fail-closed actual guest verifier requiring clean exact source commit, fixed checked Oreslang source blobs, absolute compiler path + SHA256, GNU timeout, stderr-free exact stdout. It does not run without a compiler.
+- `tests/kan_multispan_reference.test.mjs`: independent Node source-free numerical tests, 10,000 seeded de Boor versus Cox-de Boor comparisons, 2,000 finite-difference derivative trials, 800 complete coefficient-gradient fixture sweeps, knot endpoint/multiplicity tests, right-hand derivative at a triple interior knot, bounds and malformed-input rejection.
 
 ```sh
 node --test tests/kan_multispan_reference.test.mjs
 ```
 
-A local Node 22 test development copy passed 9/9 cases. That alone is not proof the committed Git blob executed under GitHub Actions; record exact-head checks independently.
+A local Node 22 test development copy passed **10/10** cases. The exact committed test file must still be independently verified against the active PR head. That alone is not proof the committed Git blob executed under GitHub Actions; record exact-head checks independently.
 
 ## Compilation and promotion gates
 
