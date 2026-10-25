@@ -6,6 +6,7 @@ on:
       - "examples/kan_mfkan_scalar_smoke.ores"
       - "reference/kan_mfkan_reference.mjs"
       - "tests/kan_mfkan_reference.test.mjs"
+      - "tests/kan_mfkan_independent_deboor.test.mjs"
       - "docs/KAN_MFKAN_CPU_REFERENCE_V1.md"
       - ".github/workflows/kan-mfkan-host-reference.yml"
   workflow_dispatch:
@@ -28,8 +29,8 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute bounded independent host numerical tests
-        run: node --test tests/kan_mfkan_reference.test.mjs
+        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs
       - name: Verify host oracle parses
-        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs
       - name: Mark evidence scope
         run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"
