@@ -1,0 +1,61 @@
+// Native KANLayer backward/VJP smoke; compile/run under trusted Oreslang.
+// Status NOT_EXECUTED until compiler guest step produces this exact stdout.
+import module Assert from "std/assert";
+import fnc kan_layer_vjp_f64_into
+    from "../src/kan/clamped_cubic_bspline_f64";
+
+pub routine main(): void {
+    val List<float> xs = arr[0.25,0.75];
+    val List<float> knots = arr[0.0,0.0,0.0,0.0,1.0,1.0,1.0,1.0];
+    val List<float> coeff = arr[
+        0.2,0.2,0.2,0.2, 0.3,0.3,0.3,0.3,
+        0.4,0.4,0.4,0.4, 0.5,0.5,0.5,0.5
+    ];
+    val List<float> biases = arr[0.1,-0.1];
+    val List<float> upstream = arr[2.0,-3.0];
+    val List<float> dx = arr[77.0,88.0];
+    val List<float> dc = arr[
+        99.0,99.0,99.0,99.0,99.0,99.0,99.0,99.0,
+        99.0,99.0,99.0,99.0,99.0,99.0,99.0,99.0
+    ];
+    val List<float> db = arr[55.0,66.0];
+    val List<float> wx = arr[0.0,0.0];
+    val List<float> wc = arr[
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+    ];
+    val List<float> wb = arr[0.0,0.0];
+    val List<float> py = arr[0.0,0.0];
+    val List<float> ps = arr[0.0,0.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        xs, knots, coeff, biases, upstream, 2, 2, 4,
+        dx, dc, db, wx, wc, wb, py, ps
+    ).is_ok());
+    Assert.true_throws(dx[0] == 0.0 && dx[1] == 0.0);
+    Assert.true_throws(db[0] == 2.0 && db[1] == -3.0);
+    Assert.true_throws(dc[0] > 0.843749 && dc[0] < 0.843751);
+    Assert.true_throws(dc[8] > -1.265626 && dc[8] < -1.265624);
+
+    // A rejected large input gradient MUST preserve all three published
+    // gradient destinations, not only input derivatives.
+    val List<float> slope_coeff = arr[
+        0.0,1.0,2.0,3.0, 0.0,0.0,0.0,0.0,
+        0.0,1.0,2.0,3.0, 0.0,0.0,0.0,0.0
+    ];
+    val List<float> huge_upstream = arr[1000000.0,1000000.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        xs, knots, slope_coeff, biases, huge_upstream, 2, 2, 4,
+        dx, dc, db, wx, wc, wb, py, ps
+    ).is_err());
+    Assert.true_throws(dx[0] == 0.0 && dx[1] == 0.0);
+    Assert.true_throws(db[0] == 2.0 && db[1] == -3.0);
+    Assert.true_throws(dc[0] > 0.843749 && dc[0] < 0.843751);
+
+    // Cross-gradient write buffer aliases are invalid.
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        xs, knots, coeff, biases, upstream, 2, 2, 4,
+        dx, dc, db, dx, wc, wb, py, ps
+    ).is_err());
+    stdio.println("ORES_KAN_LAYER_VJP_PASS");
+    return;
+}
