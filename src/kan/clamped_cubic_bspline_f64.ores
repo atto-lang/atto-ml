@@ -455,3 +455,294 @@ pub fnc kan_layer_forward_f64_into(
     done
     return Ok(true);
 }
+
+
+// Trusted local d/dx of a single packed edge, for an already checked shared
+// clamped cubic knot descriptor. offset = (o*I+i)*C + span-3.
+// The caller must bound all descriptors, offsets and parameter numerics first.
+fnc kan_layer_edge_dinput_f64(
+    float x, List<float> knots, List<float> coefficients,
+    int span, int offset
+): Result<float, String> {
+    let float q0 = 0.0;
+    let float q1 = 0.0;
+    let float q2 = 0.0;
+    for int j = 0; j < 3; j++ do
+        val int i = span - 3 + j;
+        val float denominator = knots[i + 4] - knots[i + 1];
+        if denominator <= 0.0; do
+            return Err("KAN_LAYER_VJP_DEGENERATE_DERIVATIVE");
+        fi
+        val float v = 3.0 * (
+            coefficients[offset + j + 1] - coefficients[offset + j]
+        ) / denominator;
+        if !kan_multispan_bounded(v); do
+            return Err("KAN_LAYER_VJP_DERIVATIVE_OUT_OF_BOUNDS");
+        fi
+        if j == 0; do
+            q0 = v;
+        else
+            if j == 1; do
+                q1 = v;
+            else
+                q2 = v;
+            fi
+        fi
+    done
+    for int round = 1; round <= 2; round++ do
+        for int j = 2; j >= round; j-- do
+            val int i = span - 3 + j;
+            val float den = knots[i + 4 - round] - knots[i + 1];
+            if den <= 0.0; do
+                return Err("KAN_LAYER_VJP_DEGENERATE_DERIVATIVE");
+            fi
+            val float alpha = (x - knots[i + 1]) / den;
+            if j == 2; do
+                q2 = (1.0 - alpha) * q1 + alpha * q2;
+            else
+                q1 = (1.0 - alpha) * q0 + alpha * q1;
+            fi
+        done
+    done
+    if !kan_multispan_bounded(q2); do
+        return Err("KAN_LAYER_VJP_DERIVATIVE_OUT_OF_BOUNDS");
+    fi
+    return Ok(q2);
+}
+
+// Bounded one-sample KANLayer VJP. All gradient destinations publish
+// *together* after completing every edge and every finite fan-in check.
+// The three work buffers and two forward-probe buffers are explicitly
+// expendable and may be overwritten on Err; no gradients are published on
+// Err. No heap allocation is required by this kernel.
+//
+// Caller owns an immutable parameter snapshot matching the forward
+// activation/parameter version, and must hold all writable buffers uniquely.
+// No await, GPU, optimizer, or cross-actor borrows are allowed in this
+// synchronous reference; compiler ownership validation remains an open gate.
+// Gradient layouts: input[I], coefficient[O,I,C], bias[O].
+pub fnc kan_layer_vjp_f64_into(
+    List<float> inputs,
+    List<float> knots,
+    List<float> coefficients,
+    List<float> biases,
+    List<float> upstream,
+    int input_count,
+    int output_count,
+    int controls_per_edge,
+    List<float> mut grad_inputs,
+    List<float> mut grad_coefficients,
+    List<float> mut grad_biases,
+    List<float> mut work_inputs,
+    List<float> mut work_coefficients,
+    List<float> mut work_biases,
+    List<float> mut probe_outputs,
+    List<float> mut probe_scratch
+): Result<bool, String> {
+    if input_count < 1 || input_count > 32
+        || output_count < 1 || output_count > 32
+        || controls_per_edge < 4 || controls_per_edge > 256; do
+        return Err("KAN_LAYER_VJP_DIMENSION_LIMIT");
+    fi
+    val int edge_count = input_count * output_count;
+    if controls_per_edge > 65536 / edge_count; do
+        return Err("KAN_LAYER_VJP_COEFFICIENT_QUOTA");
+    fi
+    val int coefficient_count = edge_count * controls_per_edge;
+
+    // Check every write/write and write/read identity pair before any writes.
+    // Input/read-only buffers may coincide because they are never mutated.
+    if         grad_inputs is inputs
+        || grad_inputs is knots
+        || grad_inputs is coefficients
+        || grad_inputs is biases
+        || grad_inputs is upstream
+        || grad_inputs is grad_coefficients
+        || grad_inputs is grad_biases
+        || grad_inputs is work_inputs
+        || grad_inputs is work_coefficients
+        || grad_inputs is work_biases
+        || grad_inputs is probe_outputs
+        || grad_inputs is probe_scratch
+        || grad_coefficients is inputs
+        || grad_coefficients is knots
+        || grad_coefficients is coefficients
+        || grad_coefficients is biases
+        || grad_coefficients is upstream
+        || grad_coefficients is grad_biases
+        || grad_coefficients is work_inputs
+        || grad_coefficients is work_coefficients
+        || grad_coefficients is work_biases
+        || grad_coefficients is probe_outputs
+        || grad_coefficients is probe_scratch
+        || grad_biases is inputs
+        || grad_biases is knots
+        || grad_biases is coefficients
+        || grad_biases is biases
+        || grad_biases is upstream
+        || grad_biases is work_inputs
+        || grad_biases is work_coefficients
+        || grad_biases is work_biases
+        || grad_biases is probe_outputs
+        || grad_biases is probe_scratch
+        || work_inputs is inputs
+        || work_inputs is knots
+        || work_inputs is coefficients
+        || work_inputs is biases
+        || work_inputs is upstream
+        || work_inputs is work_coefficients
+        || work_inputs is work_biases
+        || work_inputs is probe_outputs
+        || work_inputs is probe_scratch
+        || work_coefficients is inputs
+        || work_coefficients is knots
+        || work_coefficients is coefficients
+        || work_coefficients is biases
+        || work_coefficients is upstream
+        || work_coefficients is work_biases
+        || work_coefficients is probe_outputs
+        || work_coefficients is probe_scratch
+        || work_biases is inputs
+        || work_biases is knots
+        || work_biases is coefficients
+        || work_biases is biases
+        || work_biases is upstream
+        || work_biases is probe_outputs
+        || work_biases is probe_scratch
+        || probe_outputs is inputs
+        || probe_outputs is knots
+        || probe_outputs is coefficients
+        || probe_outputs is biases
+        || probe_outputs is upstream
+        || probe_outputs is probe_scratch
+        || probe_scratch is inputs
+        || probe_scratch is knots
+        || probe_scratch is coefficients
+        || probe_scratch is biases
+        || probe_scratch is upstream; do
+        return Err("KAN_LAYER_VJP_ALIAS");
+    fi
+    if !kan_layer_vjp_exact_size_f64(upstream, output_count)
+        || !kan_layer_vjp_exact_size_f64(grad_inputs, input_count)
+        || !kan_layer_vjp_exact_size_f64(work_inputs, input_count)
+        || !kan_layer_vjp_exact_size_f64(grad_biases, output_count)
+        || !kan_layer_vjp_exact_size_f64(work_biases, output_count)
+        || !kan_layer_vjp_exact_size_f64(grad_coefficients, coefficient_count)
+        || !kan_layer_vjp_exact_size_f64(work_coefficients, coefficient_count)
+        || !kan_layer_vjp_exact_size_f64(probe_outputs, output_count)
+        || !kan_layer_vjp_exact_size_f64(probe_scratch, output_count); do
+        return Err("KAN_LAYER_VJP_GRADIENT_SHAPE");
+    fi
+    for const u of upstream do
+        if !kan_multispan_bounded(u); do
+            return Err("KAN_LAYER_VJP_INVALID_UPSTREAM");
+        fi
+    done
+
+    // Delegate the source/shape/knot/domain admission checks to the exact
+    // same implementation used for the forward pass. The caller's probe
+    // buffers are disposable; no gradient destination is touched here.
+    val Result<bool, String> admitted = kan_layer_forward_f64_into(
+        inputs, knots, coefficients, biases,
+        input_count, output_count, controls_per_edge,
+        probe_outputs, probe_scratch
+    );
+    if admitted.is_err(); do
+        return Err("KAN_LAYER_VJP_INVALID_DESCRIPTOR");
+    fi
+
+    // Initialize all staging gradients, including inactive control lanes.
+    for int i = 0; i < input_count; i++ do
+        work_inputs[i] = 0.0;
+    done
+    for int k = 0; k < coefficient_count; k++ do
+        work_coefficients[k] = 0.0;
+    done
+    for int o = 0; o < output_count; o++ do
+        work_biases[o] = upstream[o];
+    done
+
+    for int o = 0; o < output_count; o++ do
+        val float u = upstream[o];
+        for int i = 0; i < input_count; i++ do
+            val float x = inputs[i];
+            val int span = kan_multispan_find_span(
+                x, knots, controls_per_edge
+            );
+            val int edge_start = (o * input_count + i) * controls_per_edge;
+            val int offset = edge_start + span - 3;
+
+            val Result<float, String> dinput = kan_layer_edge_dinput_f64(
+                x, knots, coefficients, span, offset
+            );
+            if dinput.is_err(); do
+                return Err("KAN_LAYER_VJP_EDGE_DINPUT");
+            fi
+            val float contribution = u * dinput.unwrap();
+            if !kan_multispan_bounded(contribution); do
+                return Err("KAN_LAYER_VJP_INPUT_PRODUCT");
+            fi
+            val float input_sum = work_inputs[i] + contribution;
+            if !kan_multispan_bounded(input_sum); do
+                return Err("KAN_LAYER_VJP_INPUT_FANIN");
+            fi
+            work_inputs[i] = input_sum;
+
+            // Each active cubic edge contributes to only four controls.
+            // Construct basis lanes using the checked local de Boor evaluator.
+            for int local = 0; local < 4; local++ do
+                let float b0 = 0.0;
+                let float b1 = 0.0;
+                let float b2 = 0.0;
+                let float b3 = 0.0;
+                if local == 0; do
+                    b0 = 1.0;
+                fi
+                if local == 1; do
+                    b1 = 1.0;
+                fi
+                if local == 2; do
+                    b2 = 1.0;
+                fi
+                if local == 3; do
+                    b3 = 1.0;
+                fi
+                val Result<float, String> basis = kan_multispan_span_f64(
+                    x, knots, span, b0, b1, b2, b3
+                );
+                if basis.is_err(); do
+                    return Err("KAN_LAYER_VJP_BAD_BASIS");
+                fi
+                val float grad = u * basis.unwrap();
+                if !kan_multispan_bounded(grad); do
+                    return Err("KAN_LAYER_VJP_COEFFICIENT_PRODUCT");
+                fi
+                work_coefficients[offset + local] = grad;
+            done
+        done
+    done
+
+    // Publish all gradient arrays only after every computation succeeds.
+    for int i = 0; i < input_count; i++ do
+        grad_inputs[i] = work_inputs[i];
+    done
+    for int k = 0; k < coefficient_count; k++ do
+        grad_coefficients[k] = work_coefficients[k];
+    done
+    for int o = 0; o < output_count; o++ do
+        grad_biases[o] = work_biases[o];
+    done
+    return Ok(true);
+}
+
+// Exact shape validation bounded by caller-validated expected length.
+fnc kan_layer_vjp_exact_size_f64(List<float> values, int required): bool {
+    let int count = 0;
+    for const ignored of values do
+        count = count + 1;
+        if count > required; do
+            return false;
+        fi
+    done
+    return count == required;
+}
