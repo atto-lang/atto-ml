@@ -206,6 +206,28 @@ pub fnc kan_clamped_cubic_dinput_f64(
     return Ok(q2);
 }
 
+// A checked input VJP lane. Both the local spline derivative and the
+// upstream adjoint are admitted before multiplication. The product MUST be
+// validated too: two separately bounded operands can exceed the gradient cap.
+// No mutation or optimizer-state publication happens on error.
+pub fnc kan_clamped_cubic_vjp_input_f64(
+    float x, List<float> knots, List<float> coefficients, float upstream
+): Result<float, String> {
+    if !kan_multispan_bounded(upstream); do
+        return Err("KAN_INVALID_INPUT_VJP_UPSTREAM");
+    fi
+    val Result<float, String> derivative =
+        kan_clamped_cubic_dinput_f64(x, knots, coefficients);
+    if derivative.is_err(); do
+        return Err("KAN_INVALID_INPUT_VJP_DERIVATIVE");
+    fi
+    val float gradient = upstream * derivative.unwrap();
+    if !kan_multispan_bounded(gradient); do
+        return Err("KAN_INPUT_VJP_OUT_OF_BOUNDS");
+    fi
+    return Ok(gradient);
+}
+
 // One analytic VJP coefficient lane. Only the four controls local to the
 // selected span can contribute; no coefficient array or gradient tape is
 // materialized. Caller must accumulate the per-edge/microbatch fan-in.
