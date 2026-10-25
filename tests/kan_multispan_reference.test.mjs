@@ -176,3 +176,42 @@ test('triple interior knot chooses right-hand derivative, distinct from left',()
   near(derivative(knots,coeff,x),right,2e-5);
   assert.ok(Math.abs(right-left)>.1);
 });
+
+test('maximum admitted 256-coefficient spline has bounded constant output and partition',()=>{
+  const n=256;
+  const interior=Array.from({length:n-4},(_,i)=>(i+1)/(n-3));
+  const knots=[0,0,0,0,...interior,1,1,1,1];
+  const coeff=Array(n).fill(.25);
+  for(const x of [0,1e-6,.125,.5,.875,1-1e-6,1]){
+    near(deboor(knots,coeff,x),.25,2e-13);
+    near(derivative(knots,coeff,x),0,2e-10);
+    let sum=0;
+    for(let i=0;i<n;i++)sum+=dcoeff(knots,coeff,x,i,1);
+    near(sum,1,2e-13);
+  }
+  const tooMany=Array(n+1).fill(.25);
+  assert.throws(()=>deboor(knots,tooMany,.5),/SHAPE/);
+});
+
+test('affine knot-domain transformations preserve spline and coefficient VJP',()=>{
+  const knots=[0,0,0,0,.2,.6,1,1,1,1];
+  const coeff=[.1,.4,-.2,.8,.7,.3];
+  const scale=3.7,offset=-2.5;
+  const mapped=knots.map(k=>offset+scale*k);
+  for(const x of [0,.01,.2,.34,.59,.6,.9,1]){
+    const y=offset+scale*x;
+    near(deboor(mapped,coeff,y),deboor(knots,coeff,x),2e-13);
+    near(derivative(mapped,coeff,y)*scale,derivative(knots,coeff,x),1e-12);
+    for(let i=0;i<coeff.length;i++)
+      near(dcoeff(mapped,coeff,y,i,.7),dcoeff(knots,coeff,x,i,.7),2e-13);
+  }
+});
+
+test('coefficient VJP rejects invalid lane indices and upstream values',()=>{
+  const knots=[0,0,0,0,.5,1,1,1,1],coeff=[0,.25,.5,.75,1];
+  for(const index of [-1,coeff.length,1.5,NaN,Infinity])
+    assert.throws(()=>dcoeff(knots,coeff,.5,index,1),/VJP/);
+  for(const upstream of [NaN,Infinity,-Infinity,1e6+1,-1e6-1])
+    assert.throws(()=>dcoeff(knots,coeff,.5,2,upstream),/VJP/);
+  near(dcoeff(knots,coeff,.5,2,0),0);
+});
