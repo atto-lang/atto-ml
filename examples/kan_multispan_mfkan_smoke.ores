@@ -1,0 +1,67 @@
+// Real Oreslang guest acceptance TARGET for the multi-span MFKAN source.
+// Not yet compiled/executed. Expected exact stdout: ORES_MFKAN_MULTISPAN_PASS.
+import module Assert from "std/assert";
+import fnc mfkan_clamped_cubic_high_f64,
+           mfkan_clamped_cubic_dinput_f64,
+           mfkan_clamped_cubic_low_dcoeff_f64
+    from "../src/kan/mfkan_clamped_cubic_f64";
+
+pub routine main(): void {
+    val List<float> knots =
+        arr[0.0,0.0,0.0,0.0,0.5,1.0,1.0,1.0,1.0];
+    val List<float> low_coeff =
+        arr[0.0,0.25,0.5,0.75,1.0];
+    val List<float> feature_coeff =
+        arr[0.2,0.2,0.2,0.2,0.2];
+    val List<float> prediction_coeff =
+        arr[0.1,0.1,0.1,0.1,0.1];
+
+    val Result<float, String> high = mfkan_clamped_cubic_high_f64(
+        0.5, knots, low_coeff, knots, feature_coeff,
+        knots, prediction_coeff, 0.2, 0.4, 0.1, 0.25
+    );
+    Assert.true_throws(high.is_ok());
+    Assert.true_throws(high.unwrap() > 0.824999
+        && high.unwrap() < 0.825001);
+
+    val Result<float, String> input_grad = mfkan_clamped_cubic_dinput_f64(
+        0.5, knots, low_coeff, knots, feature_coeff,
+        knots, prediction_coeff, 0.2, 0.4, 0.1, 0.25, 1.0
+    );
+    Assert.true_throws(input_grad.is_ok());
+    Assert.true_throws(input_grad.unwrap() > 0.874999
+        && input_grad.unwrap() < 0.875001);
+
+    val Result<float, String> low_lane =
+        mfkan_clamped_cubic_low_dcoeff_f64(
+            0.5, knots, low_coeff, knots, feature_coeff,
+            knots, prediction_coeff, 0.2, 0.4, 0.1, 0.25, 2, 1.0, false
+        );
+    val Result<float, String> frozen_lane =
+        mfkan_clamped_cubic_low_dcoeff_f64(
+            0.5, knots, low_coeff, knots, feature_coeff,
+            knots, prediction_coeff, 0.2, 0.4, 0.1, 0.25, 2, 1.0, true
+        );
+    Assert.true_throws(low_lane.is_ok() && frozen_lane.is_ok());
+    Assert.true_throws(low_lane.unwrap() > 0.549999
+        && low_lane.unwrap() < 0.550001);
+    Assert.true_throws(frozen_lane.unwrap() == 0.0);
+
+    // Fail closed: mix, low-output/domain mismatch, and frozen invalid lane.
+    Assert.true_throws(mfkan_clamped_cubic_high_f64(
+        0.5, knots, low_coeff, knots, feature_coeff,
+        knots, prediction_coeff, 0.2, 0.4, 0.1, -0.01
+    ).is_err());
+    val List<float> narrow_knots =
+        arr[0.0,0.0,0.0,0.0,0.2,0.4,0.4,0.4,0.4];
+    Assert.true_throws(mfkan_clamped_cubic_high_f64(
+        0.5, knots, low_coeff, knots, feature_coeff,
+        narrow_knots, prediction_coeff, 0.2, 0.4, 0.1, 0.25
+    ).is_err());
+    Assert.true_throws(mfkan_clamped_cubic_low_dcoeff_f64(
+        0.5, knots, low_coeff, knots, feature_coeff,
+        knots, prediction_coeff, 0.2, 0.4, 0.1, 0.25, 5, 1.0, true
+    ).is_err());
+    stdio.println("ORES_MFKAN_MULTISPAN_PASS");
+    return;
+}
