@@ -36,16 +36,19 @@ export function cubicBasisDerivative(t) {
 export function cubicEdge(t, coeff) {
   requireArray(coeff, 4, 'spline coefficients');
   const b=cubicBasis(t);
-  return b.reduce((total, basis, i)=>total+basis*coeff[i],0);
+  const output=b.reduce((total, basis, i)=>total+basis*coeff[i],0);
+  requireFinite(output,'spline output');
+  return output;
 }
 export function cubicEdgeVjp(t, coeff, upstream=1) {
   requireArray(coeff,4,'spline coefficients');
   requireFinite(upstream,'upstream gradient');
   const b=cubicBasis(t), db=cubicBasisDerivative(t);
-  return {
-    inputGrad: upstream*db.reduce((acc,d,i)=>acc+d*coeff[i],0),
-    coeffGrad: b.map(v=>upstream*v),
-  };
+  const inputGrad=upstream*db.reduce((acc,d,i)=>acc+d*coeff[i],0);
+  const coeffGrad=b.map(v=>upstream*v);
+  requireFinite(inputGrad,'spline input gradient');
+  coeffGrad.forEach((v,i)=>requireFinite(v,`spline coefficient gradient[${i}]`));
+  return {inputGrad,coeffGrad};
 }
 export function validateLayer(layer, input) {
   if (!layer || typeof layer !== 'object') throw new TypeError('missing KAN layer');
@@ -87,10 +90,13 @@ export function kanLayerVjp(layer,input,upstream) {
       inputGrad[i]+=upstream[o]*layer.coeff[offset+k]*db[k];
     }
   }
-  for (const v of [...inputGrad,...coeffGrad]) requireFinite(v,'KAN gradient');
+  inputGrad.forEach((v,i)=>requireFinite(v,`KAN input gradient[${i}]`));
+  coeffGrad.forEach((v,i)=>requireFinite(v,`KAN coefficient gradient[${i}]`));
   return {inputGrad,coeffGrad,biasGrad};
 }
 function requireMultifidelity(config,x) {
+  if (!(Array.isArray(x) || x instanceof Float64Array) || x.length < 1)
+    throw new RangeError('MFKAN input must be a nonempty numeric vector');
   if (!config || !config.low || !config.highNonlinear) throw new TypeError('missing MFKAN stages');
   if (config.low.inputs!==x.length || config.low.outputs!==1)
     throw new RangeError('low stage must produce one output');
@@ -123,7 +129,7 @@ export function mfkanVjp(config,x,upstream=1,{freezeLow=true}={}) {
   const featureGradient=features.map((_,i)=>upstream*config.mix*config.highLinear[i]+highVjp.inputGrad[i]);
   const lowUpstream=upstream+featureGradient.at(-1); // skip + correction dependency
   const lowVjp=kanLayerVjp(config.low,x,[lowUpstream]);
-  return {
+  const gradients={
     inputGrad: x.map((_,i)=>featureGradient[i]+lowVjp.inputGrad[i]),
     highLinearGrad, highNonlinearCoeffGrad:highVjp.coeffGrad,
     highNonlinearBiasGrad:highVjp.biasGrad,
@@ -131,4 +137,9 @@ export function mfkanVjp(config,x,upstream=1,{freezeLow=true}={}) {
     lowBiasGrad: freezeLow ? [0] : lowVjp.biasGrad,
     mixGrad:upstream*(linear-nonlinear),
   };
+  for (const [name,value] of Object.entries(gradients)) {
+    if (Array.isArray(value)) value.forEach((v,i)=>requireFinite(v,`MFKAN ${name}[${i}]`));
+    else requireFinite(value,`MFKAN ${name}`);
+  }
+  return gradients;
 }
