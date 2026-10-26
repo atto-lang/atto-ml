@@ -263,6 +263,8 @@ test('candidate Oreslang local four-basis de Boor matches independent Cox basis 
     for(let lane=0;lane<4;lane++)near(candidateLocalBasis(repeated,7,x,lane),basis(repeated,7,s-3+lane,x),3e-13);
   }
 });
+
+
 test('read-only input/upstream alias is allowed when mutable buffers are distinct',()=>{
   const k=[0,0,0,0,1,1,1,1],same=[.5],cs=[0,.25,.5,.75];
   const gi=[99],gc=Array(4).fill(99),gb=[99];
