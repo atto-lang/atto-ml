@@ -109,6 +109,49 @@ pub routine main(): void {
     Assert.true_throws(endpoint_coeff_grad[2] == 0.0);
     Assert.true_throws(endpoint_coeff_grad[3] == 2.0);
 
+
+    // Two immutable input positions may be the SAME list. Only mutable
+    // destinations/scratch require distinct storage/unique borrow.
+    val List<float> shared_read = arr[0.5];
+    val List<float> shared_coeff = arr[0.0,0.25,0.5,0.75];
+    val List<float> shared_input_grad = arr[111.0];
+    val List<float> shared_coeff_grad = arr[111.0,111.0,111.0,111.0];
+    val List<float> shared_bias_grad = arr[111.0];
+    val List<float> shared_si = arr[0.0];
+    val List<float> shared_sc = arr[0.0,0.0,0.0,0.0];
+    val List<float> shared_sb = arr[0.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        shared_read,knots,shared_coeff,shared_read,1,1,4,
+        shared_input_grad,shared_coeff_grad,shared_bias_grad,
+        shared_si,shared_sc,shared_sb
+    ).is_ok());
+    Assert.true_throws(shared_input_grad[0] > 0.374999
+        && shared_input_grad[0] < 0.375001);
+    Assert.true_throws(shared_bias_grad[0] == 0.5);
+
+    // A huge derivative in an INACTIVE span cannot reject a safe VJP
+    // requested in the final active span. No accidental whole-knot Q scan.
+    val List<float> tiny_knots =
+        arr[0.0,0.0,0.0,0.0,0.0000001,0.5,1.0,1.0,1.0,1.0];
+    val List<float> distant_coeff =
+        arr[1000000.0,-1000000.0,0.0,0.0,0.0,0.0];
+    val List<float> distant_input = arr[0.75];
+    val List<float> distant_upstream = arr[0.5];
+    val List<float> distant_grad = arr[111.0];
+    val List<float> distant_coeff_grad =
+        arr[111.0,111.0,111.0,111.0,111.0,111.0];
+    val List<float> distant_bias_grad = arr[111.0];
+    val List<float> distant_si = arr[0.0];
+    val List<float> distant_sc = arr[0.0,0.0,0.0,0.0,0.0,0.0];
+    val List<float> distant_sb = arr[0.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        distant_input,tiny_knots,distant_coeff,distant_upstream,1,1,6,
+        distant_grad,distant_coeff_grad,distant_bias_grad,
+        distant_si,distant_sc,distant_sb
+    ).is_ok());
+    Assert.true_throws(distant_grad[0] == 0.0);
+    Assert.true_throws(distant_bias_grad[0] == 0.5);
+
     stdio.println("ORES_KAN_LAYER_VJP_PASS");
     return;
 }
