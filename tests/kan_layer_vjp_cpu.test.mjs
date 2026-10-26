@@ -22,6 +22,28 @@ function predict(xs,k,c,b,I,O,C){
   return v;
  });
 }
+
+function checkedStagewiseForward(xs,k,c,b,I,O,C){
+ // Independent Cox-de Boor, but check the SAME per-edge and per-fan-in
+ // admission points as the bounded Oreslang forward preflight.
+ const y=[];
+ for(let o=0;o<O;o++){
+  let result=b[o];
+  for(let i=0;i<I;i++){
+   const x=xs[i],offset=(o*I+i)*C;
+   let partial=0;
+   if(x===k[C])partial=c[offset+C-1];
+   else for(let j=0;j<C;j++)partial+=c[offset+j]*B(k,j,3,x);
+   if(!Number.isFinite(partial)||Math.abs(partial)>LIMIT)
+     throw RangeError('FORWARD_EDGE');
+   result+=partial;
+   if(!Number.isFinite(result)||Math.abs(result)>LIMIT)
+     throw RangeError('FORWARD_FANIN');
+  }
+  y.push(result);
+ }
+ return y;
+}
 function workspace(I,O,C){return {gx:Array(I).fill(77),gc:Array(I*O*C).fill(77),gb:Array(O).fill(77),
  wx:Array(I).fill(0),wc:Array(I*O*C).fill(0),wb:Array(O).fill(0),py:Array(O).fill(0),ps:Array(O).fill(0)}}
 function gradients(xs,k,c,b,up,I,O,C,w){
@@ -42,8 +64,7 @@ function gradients(xs,k,c,b,up,I,O,C,w){
   if(j>=4&&j<C&&repeated>=4)throw RangeError('MULTIPLICITY');
  }
  if(xs.some(x=>x<lo||x>hi)||k.slice(4,C).some(v=>v<=lo||v>=hi))throw RangeError('DOMAIN');
- const p=predict(xs,k,c,b,I,O,C);
- if(p.some(v=>!Number.isFinite(v)||Math.abs(v)>LIMIT))throw RangeError('FORWARD');
+ const p=checkedStagewiseForward(xs,k,c,b,I,O,C);
  w.py.splice(0,O,...p);
  w.wx.fill(0);w.wc.fill(0);
  for(let o=0;o<O;o++){
@@ -154,4 +175,43 @@ test('right endpoint uses exact left derivative across a narrow final span',()=>
  gradients([1],k,[0,0,0,0,1e-9],[0],[1],1,1,5,w);
  near(w.gx[0],3e-9/(1-a),1e-9);
  assert.deepEqual(w.gc,[0,0,0,0,1]);assert.deepEqual(w.gb,[1]);
+});
+
+test('forward preflight rejects transient fan-in overflow even if later edge cancels',()=>{
+ const k=[0,0,0,0,1,1,1,1];
+ const c=[...Array(4).fill(1e6),...Array(4).fill(-1e6)];
+ const w=workspace(2,1,4);
+ // A final-only check would admit y=0.5; native preflight must reject
+ // intermediate bias + first edge = 1,000,000.5.
+ assert.ok(Math.abs(predict([.5,.5],k,c,[.5],2,1,4)[0]-.5)<1e-9);
+ assert.throws(()=>gradients([.5,.5],k,c,[.5],[1],2,1,4,w),/FORWARD_FANIN/);
+ assert.deepEqual(w.gx,[77,77]);
+ assert.ok(w.gc.every(z=>z===77));assert.deepEqual(w.gb,[77]);
+});
+test('later-output forward overflow preserves all VJP destinations',()=>{
+ const k=[0,0,0,0,1,1,1,1];
+ const c=[...Array(8).fill(.25),...Array(4).fill(1e6),...Array(4).fill(-1e6)];
+ const w=workspace(2,2,4);
+ assert.throws(()=>gradients([.5,.5],k,c,[.1,.5],[1,1],2,2,4,w),/FORWARD_FANIN/);
+ assert.deepEqual(w.gx,[77,77]);
+ assert.ok(w.gc.every(z=>z===77));assert.deepEqual(w.gb,[77,77]);
+});
+test('inactive coefficients are zero for a five-control multi-span edge',()=>{
+ const k=[0,0,0,0,.5,1,1,1,1],w=workspace(1,1,5);
+ const c=[.1,.2,.3,.4,.5];
+ gradients([.25],k,c,[0],[2],1,1,5,w);
+ assert.ok(w.gc[4]===0);
+ assert.ok(w.gc.slice(0,4).some(z=>z!==0));
+ gradients([.75],k,c,[0],[2],1,1,5,w);
+ assert.ok(w.gc[0]===0);
+});
+test('all distinct mutable work/result buffer identity pairs reject',()=>{
+ const k=[0,0,0,0,1,1,1,1],c=[0,1,2,3];
+ const keys=['gx','gc','gb','wx','wc','wb','py','ps'];
+ for(let a=0;a<keys.length;a++)for(let b=a+1;b<keys.length;b++){
+  const w=workspace(1,1,4),before={gx:w.gx.slice(),gc:w.gc.slice(),gb:w.gb.slice()};
+  w[keys[b]]=w[keys[a]];
+  assert.throws(()=>gradients([.5],k,c,[0],[1],1,1,4,w),/ALIAS/);
+  assert.deepEqual(w.gx,before.gx);assert.deepEqual(w.gc,before.gc);assert.deepEqual(w.gb,before.gb);
+ }
 });
