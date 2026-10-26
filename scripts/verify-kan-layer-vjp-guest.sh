@@ -5,8 +5,17 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source="examples/kan_layer_vjp_smoke.ores"
 kernel="src/kan/packed_layer_vjp_f64.ores"
-if [[ -n "${GITHUB_REPOSITORY:-}" && "${GITHUB_REPOSITORY}" != "ores-truffle-oreslang/oreslang-ml" ]]; then
-  echo 'NOT_EXECUTED: unapproved cross-org private source' >&2; exit 2
+# Source-CI identity sanity check, not authorization to transfer private source.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  if [[ "${GITHUB_REPOSITORY:-}" != "ores-truffle-oreslang/oreslang-ml" \
+        || "${GITHUB_REPOSITORY_ID:-}" != "1423913534" ]]; then
+    echo 'NOT_EXECUTED: CI source repository identity mismatch' >&2
+    exit 2
+  fi
+elif [[ -n "${GITHUB_REPOSITORY:-}" || -n "${GITHUB_REPOSITORY_ID:-}" \
+        || "${CI:-}" == "true" ]]; then
+  echo 'NOT_EXECUTED: unverifiable CI source repository context' >&2
+  exit 2
 fi
 if [[ -z "${ORESLANG_BIN:-}" || "${ORESLANG_BIN}" != /* || ! -x "${ORESLANG_BIN}" || ! -f "${ORESLANG_BIN}" ]]; then
   echo 'NOT_EXECUTED: no absolute executable compiler' >&2; exit 2
