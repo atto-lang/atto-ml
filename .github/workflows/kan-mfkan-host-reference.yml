@@ -21,6 +21,7 @@ on:
       - "examples/kan_layer_f64_smoke.ores"
       - "scripts/verify-kan-layer-guest.sh"
       - "docs/KAN_LAYER_CPU_PACKED_V1.md"
+      - "docs/KAN_NATIVE_CPU_ACCEPTANCE.md"
       - "src/kan/clamped_cubic_bspline_f64.ores"
       - "examples/kan_multispan_cubic_smoke.ores"
       - "scripts/verify-kan-multispan-guest.sh"
