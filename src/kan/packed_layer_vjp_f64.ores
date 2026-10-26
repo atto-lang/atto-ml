@@ -1,0 +1,346 @@
+// Candidate CPU KANLayer VJP, NOT guest-compiled or accepted by Java/LLVM.
+// Stacked on PR #17's logical [output,input,control] packed List<float> contract.
+// Caller must pin input, knot and coefficient snapshot from the same forward.
+// Three published gradient buffers remain unchanged on rejection; scratch is
+// expendable. No new tensor ABI, heap-sized temporary or actor state.
+
+fnc kan_vjp_finite(float x): bool {
+    return x >= -1000000.0 && x <= 1000000.0;
+}
+
+fnc kan_vjp_span(float x, List<float> knots, int n): int {
+    for int i = 3; i < n; i++ do
+        if x >= knots[i] && x < knots[i + 1]; do
+            return i;
+        fi
+    done
+    return n - 1;
+}
+
+// One active coefficient's cubic basis (independent unit control).
+fnc kan_vjp_basis(float x, List<float> knots, int span, int lane): Result<float, String> {
+    let float d0 = 0.0;
+    let float d1 = 0.0;
+    let float d2 = 0.0;
+    let float d3 = 0.0;
+    if lane == 0; do
+        d0 = 1.0;
+    fi
+    if lane == 1; do
+        d1 = 1.0;
+    fi
+    if lane == 2; do
+        d2 = 1.0;
+    fi
+    if lane == 3; do
+        d3 = 1.0;
+    fi
+    for int round = 1; round <= 3; round++ do
+        for int j = 3; j >= round; j-- do
+            val int i = span - 3 + j;
+            val float den = knots[i + 4 - round] - knots[i];
+            if den <= 0.0; do
+                return Err("KAN_VJP_DEGENERATE_BASIS");
+            fi
+            val float alpha = (x - knots[i]) / den;
+            if j == 3; do
+                d3 = (1.0 - alpha) * d2 + alpha * d3;
+            else
+                if j == 2; do
+                    d2 = (1.0 - alpha) * d1 + alpha * d2;
+                else
+                    d1 = (1.0 - alpha) * d0 + alpha * d1;
+                fi
+            fi
+        done
+    done
+    if !kan_vjp_finite(d3); do
+        return Err("KAN_VJP_INVALID_BASIS");
+    fi
+    return Ok(d3);
+}
+
+// Analytic cubic derivative, computed through degree-2 derivative controls.
+// This uses the CUBIC span, and the trimmed quadratic knots in the reduction.
+fnc kan_vjp_dinput(
+    float x, List<float> knots, List<float> coeff, int start, int span
+): Result<float, String> {
+    let float q0 = 0.0;
+    let float q1 = 0.0;
+    let float q2 = 0.0;
+    for int j = 0; j < 3; j++ do
+        val int i = span - 3 + j;
+        val float den = knots[i + 4] - knots[i + 1];
+        if den <= 0.0; do
+            return Err("KAN_VJP_INVALID_DERIVATIVE_KNOT");
+        fi
+        val float v = (3.0 * (coeff[start + i + 1] - coeff[start + i])) / den;
+        if !kan_vjp_finite(v); do
+            return Err("KAN_VJP_DERIVATIVE_OVERFLOW");
+        fi
+        if j == 0; do
+            q0 = v;
+        else
+            if j == 1; do
+                q1 = v;
+            else
+                q2 = v;
+            fi
+        fi
+    done
+    for int round = 1; round <= 2; round++ do
+        for int j = 2; j >= round; j-- do
+            val int i = span - 3 + j;
+            val float den = knots[i + 4 - round] - knots[i + 1];
+            if den <= 0.0; do
+                return Err("KAN_VJP_INVALID_DERIVATIVE_KNOT");
+            fi
+            val float alpha = (x - knots[i + 1]) / den;
+            if j == 2; do
+                q2 = (1.0 - alpha) * q1 + alpha * q2;
+            else
+                q1 = (1.0 - alpha) * q0 + alpha * q1;
+            fi
+        done
+    done
+    if !kan_vjp_finite(q2); do
+        return Err("KAN_VJP_DERIVATIVE_OVERFLOW");
+    fi
+    return Ok(q2);
+}
+
+// Upstream gradients are for O scalar outputs. Parameter coefficients are
+// flattened O*I*C, and bias gradients have length O. All SIX destination and
+// scratch arrays must be distinct from one another and ALL four read arrays.
+pub fnc kan_layer_vjp_f64_into(
+    List<float> inputs, List<float> knots, List<float> coefficients,
+    List<float> upstream, int I, int O, int C,
+    List<float> mut input_grad, List<float> mut coeff_grad,
+    List<float> mut bias_grad, List<float> mut scratch_input,
+    List<float> mut scratch_coeff, List<float> mut scratch_bias
+): Result<bool, String> {
+    if I < 1 || I > 32 || O < 1 || O > 32 || C < 4 || C > 256; do
+        return Err("KAN_VJP_DIMENSIONS");
+    fi
+    val int edges = I * O;
+    if C > 65536 / edges; do
+        return Err("KAN_VJP_RESOURCE_LIMIT");
+    fi
+    val int N = edges * C;
+
+    if input_grad is coeff_grad || input_grad is bias_grad
+        || input_grad is scratch_input || input_grad is scratch_coeff
+        || input_grad is scratch_bias || coeff_grad is bias_grad
+        || coeff_grad is scratch_input || coeff_grad is scratch_coeff
+        || coeff_grad is scratch_bias || bias_grad is scratch_input
+        || bias_grad is scratch_coeff || bias_grad is scratch_bias
+        || scratch_input is scratch_coeff || scratch_input is scratch_bias
+        || scratch_coeff is scratch_bias; do
+        return Err("KAN_VJP_MUTABLE_ALIAS");
+    fi
+    if input_grad is inputs || input_grad is knots
+        || input_grad is coefficients || input_grad is upstream
+        || coeff_grad is inputs || coeff_grad is knots
+        || coeff_grad is coefficients || coeff_grad is upstream
+        || bias_grad is inputs || bias_grad is knots
+        || bias_grad is coefficients || bias_grad is upstream
+        || scratch_input is inputs || scratch_input is knots
+        || scratch_input is coefficients || scratch_input is upstream
+        || scratch_coeff is inputs || scratch_coeff is knots
+        || scratch_coeff is coefficients || scratch_coeff is upstream
+        || scratch_bias is inputs || scratch_bias is knots
+        || scratch_bias is coefficients || scratch_bias is upstream; do
+        return Err("KAN_VJP_INPUT_ALIAS");
+    fi
+
+    let int count = 0;
+    for const x of inputs do
+        count = count + 1;
+        if count > I || !kan_vjp_finite(x); do
+            return Err("KAN_VJP_INPUT");
+        fi
+    done
+    if count != I; do
+        return Err("KAN_VJP_INPUT");
+    fi
+    count = 0;
+    for const x of upstream do
+        count = count + 1;
+        if count > O || !kan_vjp_finite(x); do
+            return Err("KAN_VJP_UPSTREAM");
+        fi
+    done
+    if count != O; do
+        return Err("KAN_VJP_UPSTREAM");
+    fi
+    count = 0;
+    for const x of coefficients do
+        count = count + 1;
+        if count > N || !kan_vjp_finite(x); do
+            return Err("KAN_VJP_COEFFICIENTS");
+        fi
+    done
+    if count != N; do
+        return Err("KAN_VJP_COEFFICIENTS");
+    fi
+    count = 0;
+    for const x of knots do
+        count = count + 1;
+        if count > C + 4 || !kan_vjp_finite(x); do
+            return Err("KAN_VJP_KNOTS");
+        fi
+    done
+    if count != C + 4; do
+        return Err("KAN_VJP_KNOTS");
+    fi
+
+    count = 0;
+    for const x of input_grad do
+        count = count + 1;
+        if count > I; do
+            return Err("KAN_VJP_INPUT_RESULT_SHAPE");
+        fi
+    done
+    if count != I; do
+        return Err("KAN_VJP_INPUT_RESULT_SHAPE");
+    fi
+    count = 0;
+    for const x of scratch_input do
+        count = count + 1;
+        if count > I; do
+            return Err("KAN_VJP_INPUT_SCRATCH_SHAPE");
+        fi
+    done
+    if count != I; do
+        return Err("KAN_VJP_INPUT_SCRATCH_SHAPE");
+    fi
+    count = 0;
+    for const x of coeff_grad do
+        count = count + 1;
+        if count > N; do
+            return Err("KAN_VJP_COEFF_RESULT_SHAPE");
+        fi
+    done
+    if count != N; do
+        return Err("KAN_VJP_COEFF_RESULT_SHAPE");
+    fi
+    count = 0;
+    for const x of scratch_coeff do
+        count = count + 1;
+        if count > N; do
+            return Err("KAN_VJP_COEFF_SCRATCH_SHAPE");
+        fi
+    done
+    if count != N; do
+        return Err("KAN_VJP_COEFF_SCRATCH_SHAPE");
+    fi
+    count = 0;
+    for const x of bias_grad do
+        count = count + 1;
+        if count > O; do
+            return Err("KAN_VJP_BIAS_RESULT_SHAPE");
+        fi
+    done
+    if count != O; do
+        return Err("KAN_VJP_BIAS_RESULT_SHAPE");
+    fi
+    count = 0;
+    for const x of scratch_bias do
+        count = count + 1;
+        if count > O; do
+            return Err("KAN_VJP_BIAS_SCRATCH_SHAPE");
+        fi
+    done
+    if count != O; do
+        return Err("KAN_VJP_BIAS_SCRATCH_SHAPE");
+    fi
+
+    val float low = knots[3];
+    val float high = knots[C];
+    if low >= high; do
+        return Err("KAN_VJP_DOMAIN");
+    fi
+    for int j = 0; j < 4; j++ do
+        if knots[j] != low || knots[C + j] != high; do
+            return Err("KAN_VJP_UNCLAMPED");
+        fi
+    done
+    let int repeat = 1;
+    for int j = 1; j < C + 4; j++ do
+        if knots[j] < knots[j - 1]; do
+            return Err("KAN_VJP_UNSORTED");
+        fi
+        if knots[j] == knots[j - 1]; do
+            repeat = repeat + 1;
+        else
+            repeat = 1;
+        fi
+        if j >= 4 && j < C && repeat >= 4; do
+            return Err("KAN_VJP_MULTIPLICITY");
+        fi
+    done
+    for int j = 4; j < C; j++ do
+        if knots[j] <= low || knots[j] >= high; do
+            return Err("KAN_VJP_INTERIOR");
+        fi
+    done
+    for int i = 0; i < I; i++ do
+        if inputs[i] < low || inputs[i] > high; do
+            return Err("KAN_VJP_INPUT_DOMAIN");
+        fi
+    done
+
+    // All preflight checks complete; scratch may be modified on error.
+    for int i = 0; i < I; i++ do
+        scratch_input[i] = 0.0;
+    done
+    for int j = 0; j < N; j++ do
+        scratch_coeff[j] = 0.0;
+    done
+    for int o = 0; o < O; o++ do
+        scratch_bias[o] = upstream[o];
+        for int i = 0; i < I; i++ do
+            val int span = kan_vjp_span(inputs[i], knots, C);
+            val int edge_start = (o * I + i) * C;
+            val Result<float, String> derivative = kan_vjp_dinput(
+                inputs[i], knots, coefficients, edge_start, span
+            );
+            if derivative.is_err(); do
+                return Err("KAN_VJP_EDGE_DINPUT");
+            fi
+            val float contribution = upstream[o] * derivative.unwrap();
+            if !kan_vjp_finite(contribution); do
+                return Err("KAN_VJP_INPUT_CONTRIBUTION_OVERFLOW");
+            fi
+            val float total = scratch_input[i] + contribution;
+            if !kan_vjp_finite(total); do
+                return Err("KAN_VJP_INPUT_FANIN_OVERFLOW");
+            fi
+            scratch_input[i] = total;
+            for int lane = 0; lane < 4; lane++ do
+                val Result<float, String> basis = kan_vjp_basis(
+                    inputs[i], knots, span, lane
+                );
+                if basis.is_err(); do
+                    return Err("KAN_VJP_BAD_BASIS");
+                fi
+                val float g = upstream[o] * basis.unwrap();
+                if !kan_vjp_finite(g); do
+                    return Err("KAN_VJP_COEFFICIENT_OVERFLOW");
+                fi
+                scratch_coeff[edge_start + span - 3 + lane] = g;
+            done
+        done
+    done
+    // Phase 2: publish only after all gradients pass bounded admission.
+    for int i = 0; i < I; i++ do
+        input_grad[i] = scratch_input[i];
+    done
+    for int j = 0; j < N; j++ do
+        coeff_grad[j] = scratch_coeff[j];
+    done
+    for int o = 0; o < O; o++ do
+        bias_grad[o] = scratch_bias[o];
+    done
+    return Ok(true);
+}
