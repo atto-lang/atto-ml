@@ -30,6 +30,30 @@ For I inputs, O outputs, C cubic controls per edge, and flat row-major parameter
 - **8/8** functions of the independent Cox-de Boor host oracle passed in the V8 test/assert harness before commit; suite `tests/kan_layer_vjp_cpu.test.mjs`, blob `6c392f431af932343892e458cbd04e3b2952699d`. Includes 1,200 seeded finite-difference comparisons, single-lane and fan-in overflow rejection, alias/shape/NaN checking, right-hand triple-knot derivative, zero upstream, and a **host-only** 20-step SGD loss-reduction illustration.
 - The host SGD illustration deliberately updates a local JS array to test *gradient usefulness*. It is **NOT** a compiled Oreslang SGD/optimizer or an end-to-end native training claim.
 
+## Host-oracle audit follow-up
+
+The original 8/8 V8-harness result above is historical. The revised oracle,
+Git blob `fe4f0631e5c6633e3c1c5a2d201cf28d9d5081a3`, passes 10/10 tests
+locally under Node 24.22.1; all seven numerical suites plus metadata pass
+66/66. These results are not Node 22 Actions execution or native guest evidence.
+
+Two independently reproduced oracle gaps are covered:
+- Active derivative controls must obey the same bounded profile as the native
+  candidate, even when oversized controls cancel to a small final derivative.
+  Rejection leaves all three published gradient arrays unchanged.
+- At the clamped right endpoint, evaluate the exact left derivative
+  `3*(c[C-1]-c[C-2])/(knots[C]-knots[C-1])`. A global epsilon can jump
+  across a narrow final span: the old oracle returned zero where the exact
+  endpoint derivative is approximately 29990.674544087655.
+
+The numerical workflow now includes the independent packed-layer de Boor
+suite in its path filter, execution list and parse checks. The metadata
+workflow explicitly checks out and verifies the requested PR head (or push
+SHA), rather than relying on the default pull-request merge checkout.
+
+Native source and guest fixtures are unchanged. Java/Graal and LLVM execution,
+borrow validation and native training remain NOT_EXECUTED.
+
 ## Required next gates
 
 1. Obtain an authorized source-local runner; if considering other GitHub organizations, no private tree transfer without a reviewed private carrier ID, snapshot contract, and independent security approval as documented in [source Java issue #1501](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1501). Zero-step workflow failures are NOT_EXECUTED, not compiler or numerical failures.

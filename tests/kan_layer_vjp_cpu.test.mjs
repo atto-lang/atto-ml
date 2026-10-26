@@ -49,9 +49,21 @@ function gradients(xs,k,c,b,up,I,O,C,w){
  for(let o=0;o<O;o++){
   w.wb[o]=up[o];
   for(let i=0;i<I;i++){
-   const x=xs[i],refx=x===hi?hi-1e-12*(hi-lo):x,off=(o*I+i)*C;
+   const x=xs[i],off=(o*I+i)*C;
+   // Admission includes the three active derivative controls, even when
+   // oversized terms would cancel to a small final derivative.
+   let span=C-1;
+   if(x!==hi)for(let j=3;j<C;j++)if(k[j]<=x&&x<k[j+1]){span=j;break}
+   for(let j=span-3;j<span;j++){
+    const den=k[j+4]-k[j+1];
+    const q=3*(c[off+j+1]-c[off+j])/den;
+    if(!(den>0)||!Number.isFinite(q)||Math.abs(q)>LIMIT)throw RangeError('DERIV_CONTROL');
+   }
+   // Exact left derivative at the clamped right endpoint. A global epsilon
+   // can jump over a narrow final span and select a different derivative.
    let derivative=0;
-   for(let j=0;j<C;j++)derivative+=c[off+j]*dB(k,j,3,refx);
+   if(x===hi)derivative=3*(c[off+C-1]-c[off+C-2])/(hi-k[C-1]);
+   else for(let j=0;j<C;j++)derivative+=c[off+j]*dB(k,j,3,x);
    if(!Number.isFinite(derivative)||Math.abs(derivative)>LIMIT)throw RangeError('DERIV');
    const product=up[o]*derivative;
    if(!Number.isFinite(product)||Math.abs(product)>LIMIT)throw RangeError('PRODUCT');
@@ -129,4 +141,17 @@ test('host-only 20-step SGD on nonlinear cubic basis reduces squared loss',()=>{
   b[0]-=.1*w.gb[0];
  }
  assert.ok(loss()<initial*.0001);
+});
+
+test('oversized active derivative controls reject even when final derivative cancels',()=>{
+ const w=workspace(1,1,4);
+ assert.throws(()=>gradients([.5],[0,0,0,0,1,1,1,1],
+  [0,1e6,1e6,0],[0],[1],1,1,4,w),/DERIV_CONTROL/);
+ assert.deepEqual(w.gx,[77]);assert.deepEqual(w.gc,[77,77,77,77]);assert.deepEqual(w.gb,[77]);
+});
+test('right endpoint uses exact left derivative across a narrow final span',()=>{
+ const a=1-1e-13,k=[0,0,0,0,a,1,1,1,1],w=workspace(1,1,5);
+ gradients([1],k,[0,0,0,0,1e-9],[0],[1],1,1,5,w);
+ near(w.gx[0],3e-9/(1-a),1e-9);
+ assert.deepEqual(w.gc,[0,0,0,0,1]);assert.deepEqual(w.gb,[1]);
 });
