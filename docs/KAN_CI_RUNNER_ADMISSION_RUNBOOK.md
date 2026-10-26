@@ -37,3 +37,22 @@ Then run the existing `scripts/verify-kan-native-cpu-suite.sh` against **each** 
 The authoritative source-governance destination allowlist at `ores-truffle-oreslang/oreslang-source.java:.github/private-ci-approved-repositories.txt` has **no approved numeric destinations**. Cross-organization Git-tree mirroring through the GitHub connector **still transfers private code**; availability of minutes or a source-free successful canary does not approve transfer. No private source was copied to the alternate organization.
 
 Track this unblocker in [oreslang-ml issue #20](https://github.com/ores-truffle-oreslang/oreslang-ml/issues/20).
+
+
+## Reproducible read-only diagnostics
+
+An organization administrator with an appropriately scoped `gh` CLI login and `jq` can run, from the source repo or another trusted workstation:
+
+```bash
+bash scripts/diagnose-kan-actions-admission.sh ores-truffle-oreslang/oreslang-ml 40264864016
+bash scripts/diagnose-kan-actions-admission.sh ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra 40253849945
+```
+
+This helper performs only GitHub REST **GET** requests for one run, its jobs, timing, and (when permitted) repo Actions enablement and self-hosted runner counts. No token is printed or stored; the trusted `gh` CLI manages authentication. Missing admin access prints `UNAVAILABLE`, never a false policy verdict. `scripts/test-kan-actions-admission-diagnostics.sh` runs eight source-free mocked regression cases and never contacts GitHub.
+
+Additional observed raw GitHub REST job fields:
+- Source-local no-checkout canary `121384937647`: `runner_id=0`, empty runner name, `steps=[]`; 0 billed Ubuntu milliseconds; overall run duration 3,000 ms.
+- Alternate-org source-free canary `121351350771`: `runner_id=0`, empty runner name, `steps=[]`; 0 billed Ubuntu milliseconds; overall run duration 4,000 ms.
+
+**Interpretation:** Neither test was assigned a runner, but these reads alone cannot distinguish exhausted budgets, repository policy, account restrictions, or scheduler provisioning failures. GitHub billing documents note that overlapping hard-stop budgets can prevent hosted runner usage: https://docs.github.com/en/billing/how-tos/set-up-budgets.
+
