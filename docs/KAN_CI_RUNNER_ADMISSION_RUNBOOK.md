@@ -48,7 +48,7 @@ bash scripts/diagnose-kan-actions-admission.sh ores-truffle-oreslang/oreslang-ml
 bash scripts/diagnose-kan-actions-admission.sh ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra 40253849945
 ```
 
-This helper performs only GitHub REST **GET** requests for one run, its jobs, timing, and (when permitted) repo Actions enablement and self-hosted runner counts. No token is printed or stored; the trusted `gh` CLI manages authentication. Missing admin access prints `UNAVAILABLE`, never a false policy verdict. `scripts/test-kan-actions-admission-diagnostics.sh` runs eight source-free mocked regression cases and never contacts GitHub.
+This helper performs only GitHub REST **GET** requests for one run, its jobs, timing, and (when permitted) repo Actions enablement and self-hosted runner counts. No token is printed or stored; the trusted `gh` CLI manages authentication. Missing admin access prints `UNAVAILABLE`, never a false policy verdict. `scripts/test-kan-actions-admission-diagnostics.sh` runs thirteen source-free mocked regression cases and never contacts GitHub.
 
 Additional observed raw GitHub REST job fields:
 - Source-local no-checkout canary `121384937647`: `runner_id=0`, empty runner name, `steps=[]`; 0 billed Ubuntu milliseconds; overall run duration 3,000 ms.
@@ -56,3 +56,9 @@ Additional observed raw GitHub REST job fields:
 
 **Interpretation:** Neither test was assigned a runner, but these reads alone cannot distinguish exhausted budgets, repository policy, account restrictions, or scheduler provisioning failures. GitHub billing documents note that overlapping hard-stop budgets can prevent hosted runner usage: https://docs.github.com/en/billing/how-tos/set-up-budgets.
 
+
+### Diagnostic classification hardening (October 25)
+
+The diagnostic now treats a pending/queued run as `RUN_NOT_COMPLETED`, not as evidence of failed admission; never interprets a truncated first page of job results as complete; and counts steps with `status=completed` rather than merely listed steps. It also preserves a real repository Actions policy `enabled=false` (previously lost when `jq //` substituted `UNKNOWN`) and reports listed rather than whole-organization self-hosted runner totals when pages may be incomplete. Mock coverage increased from 8 to **13/13 passing**; the full seven-suite host V8 math check is **67/67 passing**, independently of Actions. These counts do **not** establish native Java/Graal or LLVM compiler execution.
+
+At [PR #19](https://github.com/ores-truffle-oreslang/oreslang-ml/pull/19), the exact-head source-org no-checkout canary and the two host workflows continue to fail without any step execution. No private source has been copied to the review-only alternate organization; no destination has been approved by the source governance allowlist.
