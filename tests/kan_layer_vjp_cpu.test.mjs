@@ -209,9 +209,14 @@ test('all distinct mutable work/result buffer identity pairs reject',()=>{
  const k=[0,0,0,0,1,1,1,1],c=[0,1,2,3];
  const keys=['gx','gc','gb','wx','wc','wb','py','ps'];
  for(let a=0;a<keys.length;a++)for(let b=a+1;b<keys.length;b++){
-  const w=workspace(1,1,4),before={gx:w.gx.slice(),gc:w.gc.slice(),gb:w.gb.slice()};
+  const w=workspace(1,1,4),original={...w};
+  const before={gx:original.gx.slice(),gc:original.gc.slice(),gb:original.gb.slice()};
   w[keys[b]]=w[keys[a]];
   assert.throws(()=>gradients([.5],k,c,[0],[1],1,1,4,w),/ALIAS/);
-  assert.deepEqual(w.gx,before.gx);assert.deepEqual(w.gc,before.gc);assert.deepEqual(w.gb,before.gb);
+  // Inspect original owned destinations, not the rebinding used to inject
+  // aliasing. The caller's alias attempt may replace a destination reference.
+  assert.deepEqual(original.gx,before.gx);
+  assert.deepEqual(original.gc,before.gc);
+  assert.deepEqual(original.gb,before.gb);
  }
 });
