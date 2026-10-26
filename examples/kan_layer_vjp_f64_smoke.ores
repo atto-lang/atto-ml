@@ -51,6 +51,25 @@ pub routine main(): void {
     Assert.true_throws(db[0] == 2.0 && db[1] == -3.0);
     Assert.true_throws(dc[0] > 0.843749 && dc[0] < 0.843751);
 
+    // The second output overflows during forward preflight, after the first
+    // output has been computed. Despite this late error, all THREE published
+    // gradient buffers retain the successful previous VJP result.
+    val List<float> cancelling_late_coeff = arr[
+        0.25,0.25,0.25,0.25, 0.25,0.25,0.25,0.25,
+        1000000.0,1000000.0,1000000.0,1000000.0,
+        -1000000.0,-1000000.0,-1000000.0,-1000000.0
+    ];
+    val List<float> late_biases = arr[0.1,0.5];
+    val List<float> unit_upstream = arr[1.0,1.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        xs, knots, cancelling_late_coeff, late_biases, unit_upstream,
+        2, 2, 4, dx, dc, db, wx, wc, wb, py, ps
+    ).is_err());
+    Assert.true_throws(dx[0] == 0.0 && dx[1] == 0.0);
+    Assert.true_throws(db[0] == 2.0 && db[1] == -3.0);
+    Assert.true_throws(dc[0] > 0.843749 && dc[0] < 0.843751);
+    Assert.true_throws(dc[8] > -1.265626 && dc[8] < -1.265624);
+
     // Cross-gradient write buffer aliases are invalid.
     Assert.true_throws(kan_layer_vjp_f64_into(
         xs, knots, coeff, biases, upstream, 2, 2, 4,
