@@ -49,6 +49,17 @@ Keep [PR #19](https://github.com/ores-truffle-oreslang/oreslang-ml/pull/19) draf
 
 ## Latest hardening — exact native receipts
 
-The native suite aggregator previously admitted any receipt sharing a source/compiler prefix, even with missing or incorrect guest kernel/fixture Git blob hashes. It now owns separate immutable, complete receipt expectations for the spline, forward layer and VJP, and compares each child stdout byte-for-byte including its terminating newline, while rejecting any successful child's stderr. This is an independent consistency guard, **not** authentication of an arbitrary caller-supplied compiler binary. The source-free mock suite exercises 13 scenarios, including successful matching receipts, incorrect kernel or fixture blobs, omitted hashes, added metadata, stderr, duplicate blank lines and error returns. Passing mocks never proves native Oreslang execution.
+The native suite aggregator previously admitted any receipt sharing a source/compiler prefix, even with missing or incorrect guest kernel/fixture Git blob hashes. It now owns separate immutable, complete receipt expectations for the spline, forward layer and VJP, and compares each child stdout byte-for-byte including its terminating newline, while rejecting any successful child's stderr. This is an independent consistency guard, **not** authentication of an arbitrary caller-supplied compiler binary. The source-free mock suite exercises 20 scenarios, including successful matching receipts, incorrect kernel or fixture blobs, omitted hashes, added metadata, stderr, duplicate blank lines and error returns. Passing mocks never proves native Oreslang execution.
 
 A source-free alternate-org [admission canary #58](https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra/pull/58) also failed before any runner steps ([run #40253849945](https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra/actions/runs/40253849945)). This does not establish billing exhaustion or private-source-transfer authority; keep source in the approved source organization. See [runner issue #20](https://github.com/ores-truffle-oreslang/oreslang-ml/issues/20).
+
+
+## Aggregate preflight defense in depth — 2026-10-26
+
+The aggregate `scripts/verify-kan-native-cpu-suite.sh` now **independently** checks the exact clean Git `HEAD` against externally supplied `EXPECTED_SOURCE_COMMIT`, the existence and executability of the *absolute* `ORESLANG_BIN`, and its real SHA-256 bytes against `ORESLANG_BIN_SHA256`. It also rejects suspicious CI repository identifiers before launching any fixture. The individual guest verifiers retain their separate identity, blob, timeout and compiler-hash checks.
+
+These controls prevent a counterfeit child-script pass receipt from bypassing source/compiler preflight by supplying only a plausible-looking string. They do not establish the trustworthiness of a compiler if the expected hash itself was supplied by untrusted PR code; hashes and the runner must be approved through a separate trusted channel.
+
+The source-free `scripts/test-kan-native-suite-receipts.sh` now creates a temporary, **real committed Git repository**, uses an external executable containing only `exit 11` whose bytes are genuinely SHA-256 hashed, and stubs all three native verifiers to test the aggregator's failure and receipt logic. The dummy compiler is never executed as a guest compiler. **20/20 local test cases passed**; all mocked success cases remain **NATIVE_GUEST=NOT_EXECUTED**.
+
+Acceptance still requires a secure, source-authorized runner executing actual Java/GraalVM and LLVM compilers independently, with reviewed compiler hashes and source commits. No native pass is claimed.
