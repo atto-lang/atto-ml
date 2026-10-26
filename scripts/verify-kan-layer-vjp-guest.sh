@@ -12,8 +12,8 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
     echo 'NOT_EXECUTED: CI source repository identity mismatch' >&2
     exit 2
   fi
-elif [[ -n "${GITHUB_REPOSITORY:-}" || -n "${GITHUB_REPOSITORY_ID:-}" \
-        || "${CI:-}" == "true" ]]; then
+elif [[ -n "${GITHUB_ACTIONS:-}" || -n "${GITHUB_REPOSITORY:-}" \
+        || -n "${GITHUB_REPOSITORY_ID:-}" || -n "${CI:-}" ]]; then
   echo 'NOT_EXECUTED: unverifiable CI source repository context' >&2
   exit 2
 fi
