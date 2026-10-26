@@ -24,7 +24,7 @@ fi
 if [[ "$(git -C "$root" hash-object -- "$kernel")" != 'b3a36931e8fc1c3d5f4912b42bd4fcdcc2aab704' ]]; then
   echo 'NOT_EXECUTED: mismatched kernel blob' >&2; exit 2
 fi
-if [[ "$(git -C "$root" hash-object -- "$source")" != '7e37ed1b69c96517beee7742bf516b791731f5c0' ]]; then
+if [[ "$(git -C "$root" hash-object -- "$source")" != '2e19be4571f0c77eb782867972708ae3a35f4656' ]]; then
   echo 'NOT_EXECUTED: mismatched guest fixture blob' >&2; exit 2
 fi
 if command -v sha256sum >/dev/null 2>&1; then
@@ -57,4 +57,4 @@ fi
 if [[ -s "$tmp/stderr" ]] || ! cmp -s "$tmp/expected" "$tmp/actual"; then
   echo 'GUEST=FAILED: unexpected stderr or stdout' >&2; exit 1
 fi
-printf 'GUEST=PASS; SOURCE_COMMIT=%s; COMPILER_SHA256=%s; KERNEL_BLOB=b3a36931e8fc1c3d5f4912b42bd4fcdcc2aab704; FIXTURE_BLOB=7e37ed1b69c96517beee7742bf516b791731f5c0\n' "$EXPECTED_SOURCE_COMMIT" "$compiler_hash"
+printf 'GUEST=PASS; SOURCE_COMMIT=%s; COMPILER_SHA256=%s; KERNEL_BLOB=b3a36931e8fc1c3d5f4912b42bd4fcdcc2aab704; FIXTURE_BLOB=2e19be4571f0c77eb782867972708ae3a35f4656\n' "$EXPECTED_SOURCE_COMMIT" "$compiler_hash"
