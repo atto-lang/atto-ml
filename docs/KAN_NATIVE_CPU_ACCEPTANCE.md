@@ -33,7 +33,7 @@ The suite invokes, strictly in order:
 2. `verify-kan-layer-guest.sh`: packed KAN layer forward, alias and failure-atomic publication.
 3. `verify-kan-layer-vjp-guest.sh`: packed input/parameter/bias VJP, aliases, inactive derivative span, negative cases and output atomicity.
 
-Each child must produce exactly one accepted receipt beginning with `GUEST=PASS; SOURCE_COMMIT=<same exact pin>; COMPILER_SHA256=<same digest>;` and must independently validate its pinned kernel and fixture blobs, source HEAD, clean worktree, SHA256, stderr and actual guest stdout. Any failed child or malformed/multiline receipt prevents the suite-level `KAN_CPU_SUITE=PASS; GUEST_FIXTURES=3` line.
+Each child must produce exactly one **byte-for-byte approved** receipt containing `GUEST=PASS`, the exact source and compiler pins, and the independently pinned kernel and fixture Git blob hashes and must independently validate its pinned kernel and fixture blobs, source HEAD, clean worktree, SHA256, stderr and actual guest stdout. Any failed child, unexpected stderr, missing/altered hash, additional field, malformed receipt or extra output line prevents the suite-level `KAN_CPU_SUITE=PASS; GUEST_FIXTURES=3` line.
 
 **Important:** The suite's receipt parser is not a compiler identity authority. `scripts/test-kan-native-suite-receipts.sh` uses synthetic child scripts and proves only parser behavior. `scripts/test-kan-guest-ci-identity.sh` validates CI environment rejection logic and likewise does not execute Oreslang.
 
@@ -46,3 +46,9 @@ Each child must produce exactly one accepted receipt beginning with `GUEST=PASS;
 - **Training accepted:** in addition to native execution, owned `NdArray` and actor-state version-fenced optimizer implementation + held-out nonlinear training tests pass. This milestone has not been reached.
 
 Keep [PR #19](https://github.com/ores-truffle-oreslang/oreslang-ml/pull/19) draft until actual native acceptance, and do not merge stacked dependent PRs on the basis of host-only tests.
+
+## Latest hardening — exact native receipts
+
+The native suite aggregator previously admitted any receipt sharing a source/compiler prefix, even with missing or incorrect guest kernel/fixture Git blob hashes. It now owns separate immutable, complete receipt expectations for the spline, forward layer and VJP, and compares each child stdout byte-for-byte including its terminating newline, while rejecting any successful child's stderr. This is an independent consistency guard, **not** authentication of an arbitrary caller-supplied compiler binary. The source-free mock suite exercises 13 scenarios, including successful matching receipts, incorrect kernel or fixture blobs, omitted hashes, added metadata, stderr, duplicate blank lines and error returns. Passing mocks never proves native Oreslang execution.
+
+A source-free alternate-org [admission canary #58](https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra/pull/58) also failed before any runner steps ([run #40253849945](https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra/actions/runs/40253849945)). This does not establish billing exhaustion or private-source-transfer authority; keep source in the approved source organization. See [runner issue #20](https://github.com/ores-truffle-oreslang/oreslang-ml/issues/20).
