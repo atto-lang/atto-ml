@@ -1,0 +1,114 @@
+// Candidate Oreslang guest fixture for the *uncompiled* packed KANLayer VJP.
+// Run only with an authorized, SHA-pinned Oreslang compiler after review.
+import module Assert from "std/assert";
+import fnc kan_layer_vjp_f64_into from "../src/kan/packed_layer_vjp_f64";
+
+pub routine main(): void {
+    val List<float> inputs = arr[0.25,0.75];
+    val List<float> knots = arr[0.0,0.0,0.0,0.0,1.0,1.0,1.0,1.0];
+    val List<float> coeff = arr[
+        0.2,0.2,0.2,0.2, 0.3,0.3,0.3,0.3,
+        0.4,0.4,0.4,0.4, 0.5,0.5,0.5,0.5
+    ];
+    val List<float> upstream = arr[1.0,2.0];
+    val List<float> input_grad = arr[9.0,9.0];
+    val List<float> coeff_grad = arr[
+        9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,
+        9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0
+    ];
+    val List<float> bias_grad = arr[9.0,9.0];
+    val List<float> scratch_input = arr[0.0,0.0];
+    val List<float> scratch_coeff = arr[
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+    ];
+    val List<float> scratch_bias = arr[0.0,0.0];
+    val Result<bool, String> ok = kan_layer_vjp_f64_into(
+        inputs,knots,coeff,upstream,2,2,4,
+        input_grad,coeff_grad,bias_grad,
+        scratch_input,scratch_coeff,scratch_bias
+    );
+    Assert.true_throws(ok.is_ok());
+    Assert.true_throws(input_grad[0] > -0.000001
+        && input_grad[0] < 0.000001);
+    Assert.true_throws(input_grad[1] > -0.000001
+        && input_grad[1] < 0.000001);
+    Assert.true_throws(bias_grad[0] == 1.0 && bias_grad[1] == 2.0);
+    Assert.true_throws(coeff_grad[0] > 0.421874
+        && coeff_grad[0] < 0.421876);
+    Assert.true_throws(coeff_grad[4] > 0.015624
+        && coeff_grad[4] < 0.015626);
+    Assert.true_throws(coeff_grad[8] > 0.843749
+        && coeff_grad[8] < 0.843751);
+    Assert.true_throws(coeff_grad[15] > 0.843749
+        && coeff_grad[15] < 0.843751);
+
+    // Rejection must leave the published gradients unchanged.
+    val List<float> steep = arr[
+        0.0,1.0,2.0,3.0, 0.3,0.3,0.3,0.3,
+        0.4,0.4,0.4,0.4, 0.5,0.5,0.5,0.5
+    ];
+    val List<float> large_upstream = arr[1000000.0,1000000.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        inputs,knots,steep,large_upstream,2,2,4,
+        input_grad,coeff_grad,bias_grad,
+        scratch_input,scratch_coeff,scratch_bias
+    ).is_err());
+    Assert.true_throws(input_grad[0] > -0.000001
+        && input_grad[0] < 0.000001);
+    Assert.true_throws(bias_grad[0] == 1.0 && bias_grad[1] == 2.0);
+
+    val List<float> triple_knots =
+        arr[0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,1.0,1.0,1.0];
+    val List<float> triple_coeff = arr[0.0,0.1,0.2,0.3,0.8,0.5,0.6];
+    val List<float> triple_grad = arr[0.0];
+    val List<float> triple_coeff_grad =
+        arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+    val List<float> triple_bias_grad = arr[0.0];
+    val List<float> triple_scratch = arr[0.0];
+    val List<float> triple_coeff_scratch =
+        arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+    val List<float> triple_bias_scratch = arr[0.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        arr[0.5],triple_knots,triple_coeff,arr[2.0],1,1,7,
+        triple_grad,triple_coeff_grad,triple_bias_grad,
+        triple_scratch,triple_coeff_scratch,triple_bias_scratch
+    ).is_ok());
+    Assert.true_throws(triple_grad[0] > 5.999999
+        && triple_grad[0] < 6.000001);
+    // Endpoint input derivatives are one-sided, and coefficient VJPs are
+    // exactly sparse: at x=0 only c0 contributes, at x=1 only c3.
+    val List<float> linear_coeff = arr[0.0,1.0,2.0,3.0];
+    val List<float> one_upstream = arr[2.0];
+    val List<float> endpoint_input_grad = arr[111.0];
+    val List<float> endpoint_coeff_grad = arr[111.0,111.0,111.0,111.0];
+    val List<float> endpoint_bias_grad = arr[111.0];
+    val List<float> endpoint_scratch_input = arr[0.0];
+    val List<float> endpoint_scratch_coeff = arr[0.0,0.0,0.0,0.0];
+    val List<float> endpoint_scratch_bias = arr[0.0];
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        arr[0.0],knots,linear_coeff,one_upstream,1,1,4,
+        endpoint_input_grad,endpoint_coeff_grad,endpoint_bias_grad,
+        endpoint_scratch_input,endpoint_scratch_coeff,endpoint_scratch_bias
+    ).is_ok());
+    Assert.true_throws(endpoint_input_grad[0] > 5.999999
+        && endpoint_input_grad[0] < 6.000001);
+    Assert.true_throws(endpoint_coeff_grad[0] == 2.0);
+    Assert.true_throws(endpoint_coeff_grad[1] == 0.0);
+    Assert.true_throws(endpoint_coeff_grad[2] == 0.0);
+    Assert.true_throws(endpoint_coeff_grad[3] == 0.0);
+    Assert.true_throws(kan_layer_vjp_f64_into(
+        arr[1.0],knots,linear_coeff,one_upstream,1,1,4,
+        endpoint_input_grad,endpoint_coeff_grad,endpoint_bias_grad,
+        endpoint_scratch_input,endpoint_scratch_coeff,endpoint_scratch_bias
+    ).is_ok());
+    Assert.true_throws(endpoint_input_grad[0] > 5.999999
+        && endpoint_input_grad[0] < 6.000001);
+    Assert.true_throws(endpoint_coeff_grad[0] == 0.0);
+    Assert.true_throws(endpoint_coeff_grad[1] == 0.0);
+    Assert.true_throws(endpoint_coeff_grad[2] == 0.0);
+    Assert.true_throws(endpoint_coeff_grad[3] == 2.0);
+
+    stdio.println("ORES_KAN_LAYER_VJP_PASS");
+    return;
+}
