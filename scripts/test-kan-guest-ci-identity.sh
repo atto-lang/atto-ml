@@ -30,6 +30,10 @@ for script in \
     CI=true
   check 'unverifiable CI source repository context' "$script" \
     GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml
+  check 'unverifiable CI source repository context' "$script" \
+    CI=1
+  check 'unverifiable CI source repository context' "$script" \
+    GITHUB_ACTIONS=false
   # Valid identity moves to the independent mandatory compiler preflight.
   check 'NOT_EXECUTED:' "$script" \
     GITHUB_ACTIONS=true GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml GITHUB_REPOSITORY_ID=1423913534
