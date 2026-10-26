@@ -63,3 +63,43 @@ borrow validation and native training remain NOT_EXECUTED.
 5. Integrate these operations into generic typed `define model` DAG lowering for both compiler backends; keep model DSL independent of KAN-specific syntax.
 
 **Remain draft and do not merge until execution produces real nonempty CI steps.**
+
+## October 25 adversarial forward-preflight/atomicity audit
+
+The packed VJP is intentionally strict about **every intermediate forward
+fan-in sum**, not merely the final value. A spline edge with value +1,000,000
+followed by one with value -1,000,000 may appear harmless if the final result
+is small, but any intermediate bias-plus-edge sum outside [-1e6,+1e6]
+must reject. The original JS oracle only bounded the final prediction, so it
+could report agreement for a case native Oreslang correctly rejects.
+
+Hardening: the independent Cox-de Boor host oracle now has a separate
+`checkedStagewiseForward` routine that validates each edge and fan-in
+accumulation *before* VJP staging/publishing. `predict` remains a simple
+mathematical reference for finite differences; the acceptance preflight does
+not use that shortcut. The new committed tests cover:
+
+- Intermediate overflow followed by cancellation, and an overflow in the
+  **second** output after the first output has been computed, both preserving
+  all three published gradient arrays.
+- Inactive control lanes in a five-control spline, where each position has
+  distinct zero/nonzero coefficient gradients.
+- Every unordered pair of the eight mutable output/work/probe parameters:
+  28 pairwise alias attempts must reject before publication. They inspect
+  the *original* destination references rather than the alias-injection ref.
+
+The exact committed test blob `7767a8cc14f13249418be3fd228377aa51d7bb4f`
+passed **14/14** test functions in an isolated V8 harness (host-only).
+Native smoke blob `d2089c9653deddc1652816dff46d549fd3460adc`
+adds later-output rejection and checks previously published inputs,
+coefficients, and bias gradients are unchanged. The fail-closed native guest
+script was repinned to this exact fixture blob; kernel remains
+`f49cc2ef36f808a18c5304c2a536497bb8d4759b`.
+
+This is **NOT** a real Java/GraalVM/LLVM guest compiler run. The current
+GitHub Actions workflows continue to report zero executed steps, and
+GitHub job logs for those failed jobs are missing (404 BlobNotFound).
+Zero-step failures do not identify a specific billing or runner cause.
+The source organization has **no approved cross-organization private source
+carrier** in its reviewed numeric-ID allowlist. An unapproved, even temporary
+or secret-free, cross-org Git tree mirror remains disallowed.
