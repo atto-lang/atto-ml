@@ -1,4 +1,4 @@
-// Uncommitted, HOST-ONLY independent acceptance suite for a packed KANLayer
+// HOST-ONLY independent acceptance suite for a packed KANLayer
 // input/coefficient/bias VJP. This file does not compile or run Oreslang code.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -71,13 +71,17 @@ function vjpInto(xs,k,cs,up,I,O,C,gi,gc,gb,si,sc,sb){
   validate(xs,k,cs,up,I,O,C);
   const writable=[gi,gc,gb,si,sc,sb];
   if(writable.some(v=>!Array.isArray(v)))throw RangeError('buffers');
-  const all=[...writable,xs,k,cs,up];
-  if(new Set(all).size!==all.length)throw RangeError('alias');
+  // Read-only inputs may legally alias each other. Only unique mutable
+  // destinations and conflicts between mutable and read-only lists reject.
+  if(new Set(writable).size!==writable.length ||
+     writable.some(w=>[xs,k,cs,up].includes(w)))throw RangeError('alias');
   if(gi.length!==I||si.length!==I||gc.length!==I*O*C||sc.length!==I*O*C||gb.length!==O||sb.length!==O)throw RangeError('gradient shape');
   si.fill(0);sc.fill(0);sb.splice(0,O,...up);
   for(let o=0;o<O;o++)for(let i=0;i<I;i++){
     const base=(o*I+i)*C,local=cs.slice(base,base+C);
-    const d=analyticInput(k,local,xs[i]);
+    // Mirror the candidate native *active-span* quota policy. An inactive
+    // derivative control in a distant span must not reject this operation.
+    const d=candidateLocalInputDerivative(k,local,xs[i]);
     const term=safe(up[o]*d,'input contribution');
     si[i]=safe(si[i]+term,'input fanin');
     for(let j=0;j<C;j++)sc[base+j]=safe(up[o]*basis(k,C,j,xs[i]),'coefficient gradient');
@@ -195,7 +199,7 @@ test('late output coefficient-overflow cannot publish any gradient',()=>{
   // manufactured from bounded cubic basis and bounded upstream.
   // Therefore instead force first derivative into quota violation on late edge.
   const steep=[0,0,0,0,0,1e6,1e6,1e6];
-  assert.throws(()=>vjpInto(xs,k,steep,up,I,O,C,gi,gc,gb,[0],Array(8).fill(0),[0,0]),/input contribution|input fanin|derivative intermediate/);
+  assert.throws(()=>vjpInto(xs,k,steep,up,I,O,C,gi,gc,gb,[0],Array(8).fill(0),[0,0]),/input contribution|input fanin|derivative intermediate|native-q/);
   assert.deepEqual(gi,[73]);assert.deepEqual(gc,Array(8).fill(74));assert.deepEqual(gb,[75,76]);
 });
 
@@ -258,4 +262,25 @@ test('candidate Oreslang local four-basis de Boor matches independent Cox basis 
     const s=span(repeated,7,x);
     for(let lane=0;lane<4;lane++)near(candidateLocalBasis(repeated,7,x,lane),basis(repeated,7,s-3+lane,x),3e-13);
   }
+});
+test('read-only input/upstream alias is allowed when mutable buffers are distinct',()=>{
+  const k=[0,0,0,0,1,1,1,1],same=[.5],cs=[0,.25,.5,.75];
+  const gi=[99],gc=Array(4).fill(99),gb=[99];
+  vjpInto(same,k,cs,same,1,1,4,gi,gc,gb,[0],Array(4).fill(0),[0]);
+  near(gi[0],.375,1e-12);
+  near(gb[0],.5,1e-12);
+});
+
+test('inactive derivative control outside quota does not poison active span VJP',()=>{
+  const k=[0,0,0,0,1e-7,.5,1,1,1,1];
+  const cs=[1e6,-1e6,0,0,0,0];
+  const x=.75;
+  const gi=[99],gc=Array(6).fill(99),gb=[99];
+  // q0 is out of quota, but x is in the final span whose three derivative
+  // controls all vanish. The forward active coefficient lanes are all zero.
+  assert.throws(()=>analyticInput(k,cs,x),/derivative intermediate/);
+  vjpInto([x],k,cs,[.5],1,1,6,gi,gc,gb,[0],Array(6).fill(0),[0]);
+  near(gi[0],0,1e-12);
+  near(gc.reduce((s,v)=>s+v,0),.5,1e-12);
+  near(gb[0],.5,1e-12);
 });
