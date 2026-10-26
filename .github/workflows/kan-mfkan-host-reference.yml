@@ -16,6 +16,8 @@ on:
       - "examples/kan_layer_vjp_smoke.ores"
       - "scripts/verify-kan-layer-vjp-guest.sh"
       - "scripts/test-kan-guest-ci-identity.sh"
+      - "scripts/verify-kan-native-cpu-suite.sh"
+      - "scripts/test-kan-native-suite-receipts.sh"
       - "examples/kan_layer_f64_smoke.ores"
       - "scripts/verify-kan-layer-guest.sh"
       - "docs/KAN_LAYER_CPU_PACKED_V1.md"
@@ -52,5 +54,7 @@ jobs:
         run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-layer-guest.sh && bash -n scripts/verify-kan-layer-vjp-guest.sh
       - name: Source-free guest verifier identity admission checks
         run: bash -n scripts/test-kan-guest-ci-identity.sh && bash scripts/test-kan-guest-ci-identity.sh
+      - name: Mock-only native suite receipt parser tests
+        run: bash -n scripts/verify-kan-native-cpu-suite.sh && bash -n scripts/test-kan-native-suite-receipts.sh && bash scripts/test-kan-native-suite-receipts.sh
       - name: Mark evidence scope
         run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; MULTISPAN_NATIVE=NOT_EXECUTED; KAN_LAYER_NATIVE=NOT_EXECUTED; KAN_LAYER_VJP_NATIVE=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"
