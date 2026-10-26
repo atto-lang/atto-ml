@@ -31,7 +31,7 @@ if [[ "$(git -C "$root" hash-object -- "$kernel")" != "f49cc2ef36f808a18c5304c2a
   echo "NOT_EXECUTED: multi-span Oreslang kernel Git blob changed" >&2
   exit 2
 fi
-if [[ "$(git -C "$root" hash-object -- "$source")" != "fd1a9f1d2a535d632e4b76da21850683418a5177" ]]; then
+if [[ "$(git -C "$root" hash-object -- "$source")" != "d2089c9653deddc1652816dff46d549fd3460adc" ]]; then
   echo "NOT_EXECUTED: multi-span Oreslang fixture Git blob changed" >&2
   exit 2
 fi
@@ -76,4 +76,4 @@ if ! cmp -s "$tmp/expected" "$tmp/stdout"; then
   echo "GUEST=OUTPUT_MISMATCH: no pass receipt" >&2
   exit 1
 fi
-printf 'GUEST=PASS; SOURCE_COMMIT=%s; COMPILER_SHA256=%s; GUEST_FIXTURE_BLOB=fd1a9f1d2a535d632e4b76da21850683418a5177; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b\n' "$EXPECTED_SOURCE_COMMIT" "$compiler_digest"
+printf 'GUEST=PASS; SOURCE_COMMIT=%s; COMPILER_SHA256=%s; GUEST_FIXTURE_BLOB=d2089c9653deddc1652816dff46d549fd3460adc; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b\n' "$EXPECTED_SOURCE_COMMIT" "$compiler_digest"
