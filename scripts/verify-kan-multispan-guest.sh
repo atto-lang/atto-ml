@@ -4,6 +4,18 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Source-CI identity sanity check, not authorization to transfer private source.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  if [[ "${GITHUB_REPOSITORY:-}" != "ores-truffle-oreslang/oreslang-ml" \
+        || "${GITHUB_REPOSITORY_ID:-}" != "1423913534" ]]; then
+    echo 'NOT_EXECUTED: CI source repository identity mismatch' >&2
+    exit 2
+  fi
+elif [[ -n "${GITHUB_REPOSITORY:-}" || -n "${GITHUB_REPOSITORY_ID:-}" \
+        || "${CI:-}" == "true" ]]; then
+  echo 'NOT_EXECUTED: unverifiable CI source repository context' >&2
+  exit 2
+fi
 source="examples/kan_multispan_cubic_smoke.ores"
 kernel="src/kan/clamped_cubic_bspline_f64.ores"
 
