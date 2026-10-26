@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Native Oreslang guest integration: no host-language numerical fallback.
-# Requires approved exact source HEAD and independently pinned compiler identity.
-# Never treat the provenance fields printed by a child as compiler attestation.
+# Source commit and compiler digests MUST come from independent trusted review.
+# The checks here are independent defense in depth, not compiler attestation.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ ! "${EXPECTED_SOURCE_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]]; then
@@ -10,8 +10,40 @@ fi
 if [[ ! "${ORESLANG_BIN_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ]]; then
   echo 'NOT_EXECUTED: independently pinned compiler SHA256 required' >&2; exit 2
 fi
-if [[ -z "${ORESLANG_BIN:-}" ]]; then
-  echo 'NOT_EXECUTED: real Oreslang compiler required' >&2; exit 2
+if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+  if [[ "${GITHUB_REPOSITORY:-}" != 'ores-truffle-oreslang/oreslang-ml' \
+      || "${GITHUB_REPOSITORY_ID:-}" != 1423913534 ]]; then
+    echo 'NOT_EXECUTED: CI source repository identity mismatch' >&2; exit 2
+  fi
+elif [[ -n "${GITHUB_ACTIONS:-}" || -n "${GITHUB_REPOSITORY:-}" \
+     || -n "${GITHUB_REPOSITORY_ID:-}" || -n "${CI:-}" ]]; then
+  echo 'NOT_EXECUTED: unverifiable CI source repository context' >&2; exit 2
+fi
+if [[ -z "${ORESLANG_BIN:-}" || "${ORESLANG_BIN}" != /* \
+      || ! -f "${ORESLANG_BIN}" || ! -x "${ORESLANG_BIN}" ]]; then
+  echo 'NOT_EXECUTED: absolute executable Oreslang compiler required' >&2; exit 2
+fi
+command -v git >/dev/null 2>&1 || {
+  echo 'NOT_EXECUTED: git required to verify source' >&2; exit 2;
+}
+actual_head="$(git -C "$root" rev-parse HEAD 2>/dev/null)" || {
+  echo 'NOT_EXECUTED: exact Git source checkout required' >&2; exit 2;
+}
+if [[ "$actual_head" != "$EXPECTED_SOURCE_COMMIT" ]]; then
+  echo 'NOT_EXECUTED: source HEAD differs from independently pinned commit' >&2; exit 2
+fi
+if [[ -n "$(git -C "$root" status --porcelain --untracked-files=all)" ]]; then
+  echo 'NOT_EXECUTED: dirty source checkout' >&2; exit 2
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_compiler_sha="$(sha256sum -- "$ORESLANG_BIN" | cut -d ' ' -f1)"
+elif command -v shasum >/dev/null 2>&1; then
+  actual_compiler_sha="$(shasum -a 256 -- "$ORESLANG_BIN" | cut -d ' ' -f1)"
+else
+  echo 'NOT_EXECUTED: SHA256 tool required' >&2; exit 2
+fi
+if [[ "${actual_compiler_sha,,}" != "${ORESLANG_BIN_SHA256,,}" ]]; then
+  echo 'NOT_EXECUTED: compiler SHA256 differs from independently pinned digest' >&2; exit 2
 fi
 prefix="GUEST=PASS; SOURCE_COMMIT=${EXPECTED_SOURCE_COMMIT}; COMPILER_SHA256=${ORESLANG_BIN_SHA256,,};"
 tmp="$(mktemp -d)"
