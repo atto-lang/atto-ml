@@ -178,6 +178,10 @@ pub async routine main(): void {
   hidden.send(new NeuronPacket(1,1,1,1.0));
   val a = (await hidden.outputs.next()).value.unwrap();
   Assert.true_throws(a.value.kind == 4);
+  // Duplicate forward cannot replace this neuron's saved activation.
+  hidden.send(new NeuronPacket(1,1,1,1.0));
+  val duplicate = (await hidden.outputs.next()).value.unwrap();
+  Assert.true_throws(duplicate.value.kind == 9);
   output.send(new NeuronPacket(1,1,1,a.value.value));
   val b = (await output.outputs.next()).value.unwrap();
   Assert.true_throws(b.value.kind == 4);
@@ -192,6 +196,10 @@ pub async routine main(): void {
   hidden.send(new NeuronPacket(2,1,1,db.value.value));
   val da = (await hidden.outputs.next()).value.unwrap();
   Assert.true_throws(da.value.kind == 5 && da.value.weight_version == 2);
+  // Version 1 can no longer apply a gradient after the step-1 publication.
+  output.send(new NeuronPacket(2,1,1,2.0*first_error));
+  val stale = (await output.outputs.next()).value.unwrap();
+  Assert.true_throws(stale.value.kind == 9);
 
   // Same actor instances persist into the next step. New weights yield
   // (2.4 * 1.8)=4.32; loss 0.1024, versus the initial loss 4.
