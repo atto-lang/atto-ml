@@ -1,0 +1,49 @@
+// Pure Oreslang AdamW acceptance target; execute with pinned compiler and
+// exact source SHA. No fake receipt or host-framework numerical substitution.
+import module Assert from 'std/assert';
+import fnc adamw_step_f64_checked_into from '../src/adamw';
+
+pub routine main(): void {
+  val List<float> parameters = arr[1.0,2.0];
+  val List<float> gradients = arr[0.5,-0.5];
+  val List<float> m = arr[0.0,0.0];
+  val List<float> v = arr[0.0,0.0];
+  val List<float> candidate_p = arr[0.0,0.0];
+  val List<float> candidate_m = arr[0.0,0.0];
+  val List<float> candidate_v = arr[0.0,0.0];
+
+  Assert.true_throws(adamw_step_f64_checked_into(
+    parameters,gradients,m,v,candidate_p,candidate_m,candidate_v,
+    0.01,0.9,0.999,0.00000001,0.01,1
+  ).is_ok());
+  Assert.true_throws(parameters[0] > 0.9898 && parameters[0] < 0.9900);
+  Assert.true_throws(parameters[1] > 2.0097 && parameters[1] < 2.0099);
+  Assert.true_throws(m[0] > 0.0499 && m[0] < 0.0501);
+  Assert.true_throws(v[0] > 0.000249 && v[0] < 0.000251);
+
+  val float saved_p = parameters[0];
+  val float saved_m = m[0];
+  val float saved_v = v[0];
+  Assert.true_throws(adamw_step_f64_checked_into(
+    parameters,gradients,m,v,candidate_p,candidate_m,candidate_v,
+    0.01,0.9,0.999,0.00000001,0.01,0
+  ).is_err());
+  Assert.true_throws(parameters[0] == saved_p &&
+    m[0] == saved_m && v[0] == saved_v);
+
+  Assert.true_throws(adamw_step_f64_checked_into(
+    parameters,gradients,m,v,candidate_p,candidate_m,candidate_v,
+    0.01,0.9,0.999,0.00000001,0.01,2
+  ).is_ok());
+  Assert.true_throws(parameters[0] < saved_p);
+  Assert.true_throws(parameters[1] > 2.0099);
+
+  // Output must survive invalid optimizer hyperparameters unchanged.
+  val float after_second = parameters[0];
+  Assert.true_throws(adamw_step_f64_checked_into(
+    parameters,gradients,m,v,candidate_p,candidate_m,candidate_v,
+    0.01,1.0,0.999,0.00000001,0.01,3
+  ).is_err());
+  Assert.true_throws(parameters[0] == after_second);
+  stdio.println("ORES_ML_ADAMW_CHECKED_PASS");
+}
