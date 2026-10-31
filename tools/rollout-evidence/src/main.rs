@@ -53,9 +53,7 @@ fn inspect(
     }
     if text.len() as u64 > LIMIT
         || !text.ends_with('\n')
-        || text
-            .bytes()
-            .any(|b| !matches!(b, b'\t' | b'\n' | b' '..=b'~'))
+        || text.bytes().any(|b| !matches!(b, b'\t' | b'\n' | b' '..=b'~'))
     {
         return Err("receipt must be bounded printable ASCII/LF TSV with a final newline".into());
     }
