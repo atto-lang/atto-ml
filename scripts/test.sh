@@ -24,6 +24,7 @@ case "$ORESLANG_BIN" in
 esac
 [ -x "$ORESLANG_BIN" ] || unconfigured 'ORESLANG_BIN is not executable'
 
+valid_hex "${EXPECTED_ML_TREE_SHA:-}" 40 || unconfigured 'EXPECTED_ML_TREE_SHA must be a nonzero 40-hex tree'
 valid_hex "${EXPECTED_ML_HEAD_SHA:-}" 40 || unconfigured 'EXPECTED_ML_HEAD_SHA must be a nonzero 40-hex commit'
 valid_hex "${EXPECTED_LINEAR_BLOB:-}" 40 || unconfigured 'EXPECTED_LINEAR_BLOB must be a nonzero 40-hex Git blob'
 valid_hex "${EXPECTED_SMOKE_BLOB:-}" 40 || unconfigured 'EXPECTED_SMOKE_BLOB must be a nonzero 40-hex Git blob'
@@ -37,6 +38,18 @@ root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
 [ -f "$root/tests/smoke.ores" ] || unconfigured 'tests/smoke.ores missing'
 head="$(git -C "$root" rev-parse --verify HEAD 2>/dev/null)" || unconfigured 'source is not at an inspectable Git commit'
 [ "$head" = "$EXPECTED_ML_HEAD_SHA" ] || unconfigured 'source HEAD mismatch'
+# Prevent a checkout in a parent repository from masquerading as this source tree.
+git_root="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" || unconfigured 'cannot locate Git checkout root'
+[ "$(CDPATH='' cd -- "$git_root" && pwd -P)" = "$root" ] || unconfigured 'source path is not the Git checkout root'
+tree="$(git -C "$root" rev-parse --verify 'HEAD^{tree}' 2>/dev/null)" || unconfigured 'cannot resolve source commit tree'
+[ "$tree" = "$EXPECTED_ML_TREE_SHA" ] || unconfigured 'source tree SHA mismatch'
+check_clean() {
+  # Covers staged, modified and untracked (non-ignored) files, not just the
+  # two directly imported .ores buffers. Read-only checkout is still preferred.
+  status="$(git -C "$root" status --porcelain --untracked-files=all 2>/dev/null)" || unconfigured 'cannot inspect source checkout status'
+  [ -z "$status" ] || unconfigured 'source checkout contains modified or untracked files'
+}
+check_clean
 
 linear="$(git hash-object "$root/src/linear.ores")"
 smoke="$(git hash-object "$root/tests/smoke.ores")"
@@ -65,6 +78,7 @@ linear_after="$(git hash-object "$root/src/linear.ores")" || unconfigured 'canno
 smoke_after="$(git hash-object "$root/tests/smoke.ores")" || unconfigured 'cannot rehash smoke fixture'
 [ "$linear_after" = "$EXPECTED_LINEAR_BLOB" ] || unconfigured 'affine source mutated during execution'
 [ "$smoke_after" = "$EXPECTED_SMOKE_BLOB" ] || unconfigured 'smoke fixture mutated during execution'
+check_clean
 compiler_after="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [ "$compiler_after" = "$EXPECTED_COMPILER_SHA256" ] || unconfigured 'compiler binary changed during test'
-printf 'UNAUTHENTICATED_GUEST_OUTPUT_MATCH source=%s fixture=%s compiler_sha256=%s\n' "$head" "$smoke" "$compiler"
+printf 'UNAUTHENTICATED_GUEST_OUTPUT_MATCH source=%s tree=%s fixture=%s compiler_sha256=%s\n' "$head" "$tree" "$smoke" "$compiler"
