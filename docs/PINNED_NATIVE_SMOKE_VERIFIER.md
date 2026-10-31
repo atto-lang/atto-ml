@@ -36,7 +36,8 @@ unexpected output/stderr or nonzero exit, and **0** only when the pinned
 executable exits 0, stderr is empty and stdout equals exactly
 `ORES_ML_TRAINING_SMOKE_PASS\n`. The smoke command has a 120-second timeout.
 A source SHA and two source blob hashes are recorded; the runner also
-rechecks the binary hash after execution. This is source/bytes consistency,
+rechecks **both source blobs and the binary digest after execution** to
+reject persistent in-flight changes. This is source/bytes consistency,
 not cryptographic code-signing or an independently authenticated compiler.
 
 ## Self-tests
@@ -48,14 +49,20 @@ sh scripts/test-smoke-verifier.sh
 ```
 
 The self-test uses a temporary mock Git repository and fake shell programs,
-never compiles an Oreslang source file, and proves 11 **structural** cases:
+never compiles an Oreslang source file, and proves 13 **structural** cases:
 missing compiler, non-absolute path, wrong HEAD, wrong source/fixture blob,
 wrong compiler digest, `/bin/true` silent success, stderr pollution, extra
-stdout, nonzero exit after correct stdout, and synthetic matched output.
+stdout, nonzero exit after correct stdout, **source modification during the
+guest command**, **fixture modification during the guest command**, and
+synthetic matched output.
 
 The synthetic-positive case is intentional to show the limit of output
 matching: no verifier in this PR authenticates the compiler identity,
 Oreslang language semantics, host runner, actor state, or backend parity.
+A process that tampers with pinned files and restores them before the
+post-execution hash check remains outside this best-effort consistency gate;
+independently controlled, immutable source mounts and an authenticated
+compiler/runner are still required.
 Capture actual source SHA, immutable compiler provenance, compiler command,
 runner ID, nonzero steps, stdout/stderr, toolchain, and all required negative
 fixtures separately before any real promotion.
