@@ -16,6 +16,7 @@ GNU `sha256sum`, `timeout`, `git`, `cmp` and normal POSIX shell utilities.
 - `ORESLANG_BIN`: **absolute path** to the compiler/runner executable.
 - `EXPECTED_COMPILER_SHA256`: reviewed immutable SHA-256 for that binary.
 - `EXPECTED_ML_HEAD_SHA`: reviewed exact 40-hex HEAD SHA of the ML checkout.
+- `EXPECTED_ML_TREE_SHA`: independently reviewed full 40-hex root Git tree SHA.
 - `EXPECTED_LINEAR_BLOB`: reviewed Git blob SHA of `src/linear.ores`.
 - `EXPECTED_SMOKE_BLOB`: reviewed Git blob SHA of `tests/smoke.ores`.
 
@@ -26,6 +27,7 @@ approval pins from an untrusted receipt:
 export ORESLANG_BIN=/absolute/path/to/reviewed/oreslang
 export EXPECTED_COMPILER_SHA256=<reviewed-64-hex>
 export EXPECTED_ML_HEAD_SHA=<reviewed-40-hex>
+export EXPECTED_ML_TREE_SHA=<reviewed-40-hex>
 export EXPECTED_LINEAR_BLOB=<reviewed-40-hex>
 export EXPECTED_SMOKE_BLOB=<reviewed-40-hex>
 sh scripts/test.sh
@@ -35,9 +37,13 @@ The verifier returns **78** if missing/unpinned, **1** on failed execution,
 unexpected output/stderr or nonzero exit, and **0** only when the pinned
 executable exits 0, stderr is empty and stdout equals exactly
 `ORES_ML_TRAINING_SMOKE_PASS\n`. The smoke command has a 120-second timeout.
-A source SHA and two source blob hashes are recorded; the runner also
-rechecks **both source blobs and the binary digest after execution** to
-reject persistent in-flight changes. This is source/bytes consistency,
+A source commit, full Git tree and two source blob hashes are recorded.
+The verifier requires that the checked-out repository root is the Git root,
+and rejects staged/modified tracked files or nonignored untracked files both
+**before and after** guest execution. It also rechecks both source blobs and
+the compiler binary digest afterward, rejecting persistent in-flight changes.
+Ignored files and tampering that is fully reverted during execution are NOT
+ruled out; a controlled immutable read-only source mount remains necessary. This is source/bytes consistency,
 not cryptographic code-signing or an independently authenticated compiler.
 
 ## Self-tests
@@ -49,12 +55,14 @@ sh scripts/test-smoke-verifier.sh
 ```
 
 The self-test uses a temporary mock Git repository and fake shell programs,
-never compiles an Oreslang source file, and proves 13 **structural** cases:
+never compiles an Oreslang source file, and proves 18 **structural** cases:
 missing compiler, non-absolute path, wrong HEAD, wrong source/fixture blob,
 wrong compiler digest, `/bin/true` silent success, stderr pollution, extra
 stdout, nonzero exit after correct stdout, **source modification during the
-guest command**, **fixture modification during the guest command**, and
-synthetic matched output.
+guest command**, **fixture modification during the guest command**, wrong
+root Git tree, preexisting modified tracked or untracked source, new untracked
+source generated during execution, modifications to a third tracked file,
+and synthetic matched output.
 
 The synthetic-positive case is intentional to show the limit of output
 matching: no verifier in this PR authenticates the compiler identity,
