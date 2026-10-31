@@ -1,0 +1,19 @@
+name: Source-local runner admission canary (no checkout)
+on:
+  push:
+    branches:
+      - audit/source-local-runner-admission-20261030
+    paths:
+      - .github/workflows/source-local-runner-admission.yml
+  workflow_dispatch:
+permissions: {}
+jobs:
+  admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Print source-free execution marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'ORES_ML_SOURCE_LOCAL_ADMISSION_EXECUTED sha=%s run=%s attempt=%s\n' "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
