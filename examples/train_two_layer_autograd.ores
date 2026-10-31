@@ -1,0 +1,62 @@
+// Pure-Oreslang two-layer ReLU network trained with reverse-mode autograd.
+// Architecture: x -> Linear(1,1) -> ReLU -> Linear(1,1) -> MSE.
+// Fixed nonlinear regression fixture: y = 1 + 2*ReLU(x).
+// Requires a sibling checkout of oreslang-autograd.
+import module Assert from "std/assert";
+import class TapeF64 from "../../oreslang-autograd/src/tape";
+import fnc forward_checked_into from "../../oreslang-autograd/src/forward_checked";
+import fnc backward_checked_into from "../../oreslang-autograd/src/backward_checked";
+
+pub routine main(): void {
+  val List<float> xs = arr[-2.0, -1.0, 0.0, 1.0, 2.0];
+  val List<float> ys = arr[1.0, 1.0, 1.0, 3.0, 5.0];
+  val List<float> parameters = arr[1.0, 0.0, 1.0, 0.0];
+  val float rate = 0.03;
+  let float first_loss = 0.0;
+  let float last_loss = 0.0;
+
+  for int epoch = 0; epoch < 500; epoch++ do
+    val List<float> sums = arr[0.0, 0.0, 0.0, 0.0];
+    let float loss = 0.0;
+    for int i = 0; i < 5; i++ do
+      // 0=w1, 1=b1, 2=w2, 3=b2, 4=x, 5=-target,
+      // 6=w1*x, 7=+b1, 8=ReLU, 9=*w2, 10=+b2,
+      // 11=prediction-target, 12=squared loss.
+      val TapeF64 tape = new TapeF64(
+        arr[0, 0, 0, 0, 0, 0, 2, 1, 3, 2, 1, 1, 2],
+        arr[-1, -1, -1, -1, -1, -1, 0, 6, 7, 8, 9, 10, 11],
+        arr[-1, -1, -1, -1, -1, -1, 4, 1, -1, 2, 3, 5, 11],
+        arr[parameters[0], parameters[1], parameters[2], parameters[3],
+          xs[i], 0.0 - ys[i], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      );
+      val List<float> forward_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      val List<float> saved = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                   0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      val List<float> backward_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                             0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      val List<float> gradients = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                       0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      Assert.true_throws(forward_checked_into(tape, forward_scratch, saved).is_ok());
+      Assert.true_throws(backward_checked_into(tape, saved, 12, 1.0, backward_scratch, gradients).is_ok());
+      loss = loss + saved[12];
+      for int p = 0; p < 4; p++ do
+        sums[p] = sums[p] + gradients[p];
+      done
+    done
+    last_loss = loss / 5.0;
+    if epoch == 0; do
+      first_loss = last_loss;
+    fi
+    for int p = 0; p < 4; p++ do
+      parameters[p] = parameters[p] - (rate * sums[p] / 5.0);
+    done
+  done
+
+  Assert.true_throws(first_loss > 1.0);
+  Assert.true_throws(last_loss < first_loss);
+  Assert.true_throws(last_loss < 0.000001);
+  Assert.true_throws(parameters[3] > 0.99 && parameters[3] < 1.01);
+  stdio.println("ORES_ML_TWO_LAYER_RELU_AUTOGRAD_PASS");
+  return;
+}
