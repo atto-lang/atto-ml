@@ -38,7 +38,10 @@ cargo run --manifest-path tools/rollout-evidence/Cargo.toml --offline --locked -
 cargo run --manifest-path tools/rollout-evidence/Cargo.toml --offline --locked -- receipt.tsv EXPECTED_COMMIT EXPECTED_TREE EXPECTED_CORPUS_SHA256
 ```
 
-The receipt is canonical ASCII/LF TSV, at most 1 MiB, with this exact header:
+The receipt is canonical ASCII/LF TSV, at most 1 MiB, with this exact header.
+A final LF is mandatory; bytes other than printable ASCII, TAB separators
+and LF line breaks (including CR, NUL, DEL and terminal escapes) are rejected.
+The compiled case manifest follows the same canonical byte rules:
 
 ```text
 repository	suite	backend	phase	outcome	commit	tree	corpus_sha256	run_id	job_id	steps	tests	exit_code	artifact_sha256
