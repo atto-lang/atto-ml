@@ -2,7 +2,7 @@
 # Source-free verifier self-test. All fake binaries are intentionally NOT Oreslang.
 set -eu
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
-tmp="$(mktemp -d "\${TMPDIR:-/tmp}/ores-ml-verifier-selftest.XXXXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/ores-ml-verifier-selftest.XXXXXXXX")"
 trap 'rm -rf -- "$tmp"' EXIT HUP INT TERM
 mkdir -p "$tmp/work/scripts" "$tmp/work/src" "$tmp/work/tests"
 cp "$root/scripts/test.sh" "$tmp/work/scripts/test.sh"
