@@ -4,21 +4,27 @@ permissions:
   contents: read
 jobs:
   source:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify explicit compiler admission fails closed
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Verify unconfigured compiler rejects and smoke verifier self-tests
+        shell: bash
         run: |
           set -eu
           test -s src/linear.ores
           test -s tests/smoke.ores
           sh -n scripts/test.sh
+          sh -n scripts/test-smoke-verifier.sh
           set +e
           env -u ORESLANG_BIN sh scripts/test.sh
           status=$?
           set -e
           if [ "$status" -ne 78 ]; then
-            echo "expected explicit UNCONFIGURED exit 78; got $status" >&2
+            echo "expected explicit NOT_EXECUTED exit 78; got $status" >&2
             exit 1
           fi
+          sh scripts/test-smoke-verifier.sh
           echo "SOURCE_ONLY_OK; no real Oreslang compiler was run"
