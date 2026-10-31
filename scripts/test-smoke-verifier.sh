@@ -54,6 +54,18 @@ cat > "$tmp/mock-extra-mutate" <<'MOCK'
 printf 'tampered extra file\n' > tests/other.txt
 printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
 MOCK
+cat > "$tmp/mock-empty-commit" <<'MOCK'
+#!/bin/sh
+git -c user.name=VerifierSelftest -c user.email=unused@example.invalid commit --allow-empty -qm changed-ref
+printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
+MOCK
+cat > "$tmp/mock-tree-commit" <<'MOCK'
+#!/bin/sh
+printf 'tampered extra file\n' > tests/other.txt
+git add tests/other.txt
+git -c user.name=VerifierSelftest -c user.email=unused@example.invalid commit -qm changed-tree
+printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
+MOCK
 chmod 700 "$tmp"/mock-*
 script="$tmp/work/scripts/test.sh"
 sha_true="$(sha256sum /bin/true | cut -d ' ' -f 1)"
@@ -65,6 +77,8 @@ sha_source_mutate="$(sha256sum "$tmp/mock-source-mutate" | cut -d ' ' -f 1)"
 sha_fixture_mutate="$(sha256sum "$tmp/mock-fixture-mutate" | cut -d ' ' -f 1)"
 sha_add_untracked="$(sha256sum "$tmp/mock-add-untracked" | cut -d ' ' -f 1)"
 sha_extra_mutate="$(sha256sum "$tmp/mock-extra-mutate" | cut -d ' ' -f 1)"
+sha_empty_commit="$(sha256sum "$tmp/mock-empty-commit" | cut -d ' ' -f 1)"
+sha_tree_commit="$(sha256sum "$tmp/mock-tree-commit" | cut -d ' ' -f 1)"
 assert_rc() {
   expected="$1"
   shift
@@ -123,8 +137,14 @@ run_case 78 "$tmp/mock-add-untracked" "$sha_add_untracked" "$head" "$linear" "$s
 rm "$tmp/work/src/rogue.ores"
 run_case 78 "$tmp/mock-extra-mutate" "$sha_extra_mutate" "$head" "$linear" "$smoke"
 printf 'dummy extra tracked file\n' > "$tmp/work/tests/other.txt"
+# The guest must not move HEAD or commit altered tracked bytes while leaving
+# a superficially clean checkout. Restore the test repository after each.
+run_case 78 "$tmp/mock-empty-commit" "$sha_empty_commit" "$head" "$linear" "$smoke"
+git -C "$tmp/work" reset --hard -q "$head"
+run_case 78 "$tmp/mock-tree-commit" "$sha_tree_commit" "$head" "$linear" "$smoke"
+git -C "$tmp/work" reset --hard -q "$head"
 # Positive structural case deliberately uses a FAKE compiler: output+hash
 # matches are NOT compiler attestation or a native guest execution proof.
 run_case 0 "$tmp/mock-accept" "$sha_good" "$head" "$linear" "$smoke"
 grep -q '^UNAUTHENTICATED_GUEST_OUTPUT_MATCH ' "$tmp/actual-stdout"
-echo 'SOURCE_ONLY_SMOKE_VERIFIER_SELFTEST_PASS cases=18 native_guest=NOT_EXECUTED'
+echo 'SOURCE_ONLY_SMOKE_VERIFIER_SELFTEST_PASS cases=20 native_guest=NOT_EXECUTED'
