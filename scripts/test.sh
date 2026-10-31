@@ -79,6 +79,10 @@ smoke_after="$(git hash-object "$root/tests/smoke.ores")" || unconfigured 'canno
 [ "$linear_after" = "$EXPECTED_LINEAR_BLOB" ] || unconfigured 'affine source mutated during execution'
 [ "$smoke_after" = "$EXPECTED_SMOKE_BLOB" ] || unconfigured 'smoke fixture mutated during execution'
 check_clean
+head_after="$(git -C "$root" rev-parse --verify HEAD 2>/dev/null)" || unconfigured 'cannot re-read source commit'
+tree_after="$(git -C "$root" rev-parse --verify 'HEAD^{tree}' 2>/dev/null)" || unconfigured 'cannot re-read source tree'
+[ "$head_after" = "$EXPECTED_ML_HEAD_SHA" ] || unconfigured 'source HEAD changed during guest execution'
+[ "$tree_after" = "$EXPECTED_ML_TREE_SHA" ] || unconfigured 'source tree changed during guest execution'
 compiler_after="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [ "$compiler_after" = "$EXPECTED_COMPILER_SHA256" ] || unconfigured 'compiler binary changed during test'
 printf 'UNAUTHENTICATED_GUEST_OUTPUT_MATCH source=%s tree=%s fixture=%s compiler_sha256=%s\n' "$head" "$tree" "$smoke" "$compiler"
