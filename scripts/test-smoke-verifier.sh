@@ -32,6 +32,16 @@ cat > "$tmp/mock-nonzero" <<'MOCK'
 printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
 exit 7
 MOCK
+cat > "$tmp/mock-source-mutate" <<'MOCK'
+#!/bin/sh
+printf 'tampered affine kernel\n' > src/linear.ores
+printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
+MOCK
+cat > "$tmp/mock-fixture-mutate" <<'MOCK'
+#!/bin/sh
+printf 'tampered smoke fixture\n' > tests/smoke.ores
+printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
+MOCK
 chmod 700 "$tmp"/mock-*
 script="$tmp/work/scripts/test.sh"
 sha_true="$(sha256sum /bin/true | cut -d ' ' -f 1)"
@@ -39,6 +49,8 @@ sha_good="$(sha256sum "$tmp/mock-accept" | cut -d ' ' -f 1)"
 sha_noise="$(sha256sum "$tmp/mock-noise" | cut -d ' ' -f 1)"
 sha_extra="$(sha256sum "$tmp/mock-extra" | cut -d ' ' -f 1)"
 sha_nonzero="$(sha256sum "$tmp/mock-nonzero" | cut -d ' ' -f 1)"
+sha_source_mutate="$(sha256sum "$tmp/mock-source-mutate" | cut -d ' ' -f 1)"
+sha_fixture_mutate="$(sha256sum "$tmp/mock-fixture-mutate" | cut -d ' ' -f 1)"
 assert_rc() {
   expected="$1"
   shift
@@ -76,8 +88,13 @@ run_case 1 /bin/true "$sha_true" "$head" "$linear" "$smoke"
 run_case 1 "$tmp/mock-noise" "$sha_noise" "$head" "$linear" "$smoke"
 run_case 1 "$tmp/mock-extra" "$sha_extra" "$head" "$linear" "$smoke"
 run_case 1 "$tmp/mock-nonzero" "$sha_nonzero" "$head" "$linear" "$smoke"
+# A forged program cannot rewrite the verified source or fixture after preflight.
+run_case 78 "$tmp/mock-source-mutate" "$sha_source_mutate" "$head" "$linear" "$smoke"
+printf 'dummy affine kernel\n' > "$tmp/work/src/linear.ores"
+run_case 78 "$tmp/mock-fixture-mutate" "$sha_fixture_mutate" "$head" "$linear" "$smoke"
+printf 'dummy smoke fixture\n' > "$tmp/work/tests/smoke.ores"
 # Positive structural case deliberately uses a FAKE compiler: output+hash
 # matches are NOT compiler attestation or a native guest execution proof.
 run_case 0 "$tmp/mock-accept" "$sha_good" "$head" "$linear" "$smoke"
 grep -q '^UNAUTHENTICATED_GUEST_OUTPUT_MATCH ' "$tmp/actual-stdout"
-echo 'SOURCE_ONLY_SMOKE_VERIFIER_SELFTEST_PASS cases=11 native_guest=NOT_EXECUTED'
+echo 'SOURCE_ONLY_SMOKE_VERIFIER_SELFTEST_PASS cases=13 native_guest=NOT_EXECUTED'
