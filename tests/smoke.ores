@@ -15,7 +15,11 @@ pub routine main(): void {
   Assert.equal_throws(biases[0], 0.0);
   Assert.true_throws(train_affine_step(input, target, weights, weights, 0.05).is_err());
   Assert.equal_throws(weights[0], 0.0);
-
+  // A rejected learning rate must not publish either trained scalar.
+  Assert.true_throws(train_affine_step(input, target, weights, biases, 0.0).is_err());
+  Assert.true_throws(train_affine_step(input, target, weights, biases, -0.05).is_err());
+  Assert.equal_throws(weights[0], 0.0);
+  Assert.equal_throws(biases[0], 0.0);
 
   for int step = 0; step < 500; step++ do
     Assert.true_throws(
@@ -41,9 +45,25 @@ pub routine main(): void {
   val List<float> empty_parameters = arr[];
   Assert.true_throws(sgd_step_into(empty_parameters, arr[], 0.5).is_err());
 
+  // Multi-parameter update followed by late rejection must preserve every slot.
+  val List<float> vector_params = arr[3.0, 5.0];
+  Assert.true_throws(sgd_step_into(vector_params, arr[2.0, 4.0], 0.5).is_ok());
+  Assert.equal_throws(vector_params[0], 2.0);
+  Assert.equal_throws(vector_params[1], 3.0);
+  Assert.true_throws(sgd_step_into(vector_params, arr[1.0], 0.5).is_err());
+  Assert.true_throws(sgd_step_into(vector_params, arr[1.0, 1.0], 0.0).is_err());
+  Assert.true_throws(sgd_step_into(vector_params, arr[1.0, 1.0], -0.5).is_err());
+  Assert.equal_throws(vector_params[0], 2.0);
+  Assert.equal_throws(vector_params[1], 3.0);
+
   val List<float> untouched = arr[10.0];
   Assert.true_throws(sgd_step_into(untouched, arr[], 0.5).is_err());
   Assert.equal_throws(untouched[0], 10.0);
+  // Affine output shape rejection and empty MSE cannot claim valid results.
+  val List<float> output_untouched = arr[77.0];
+  Assert.true_throws(affine_batch_into(input, weights[0], biases[0], output_untouched).is_err());
+  Assert.equal_throws(output_untouched[0], 77.0);
+  Assert.true_throws(mse_loss(arr[], arr[]).is_err());
   stdio.println("ORES_ML_TRAINING_SMOKE_PASS");
   return;
 }
