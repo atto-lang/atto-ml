@@ -59,12 +59,12 @@ private-source export. Require independent destination and exact-tree
 authorization under [Java issue #1501](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1501)
 and the private-CI allowlist. No such approval is established by this audit.
 
-The Rust receipt checker rejects malformed, noncanonical or incomplete
-metadata and emits `CONSISTENT_UNAUTHENTICATED_RECEIPT` for structurally
-consistent rows. It does not contact GitHub, authenticate job provenance,
-hash files, run a compiler, or elevate any draft. Canonical input must end
-in LF and contain only printable ASCII, tab delimiters and LF line breaks;
-NUL, DEL, terminal escape, CRLF and an unterminated row are rejected.
+The Rust receipt checker validates metadata consistency and emits
+`CONSISTENT_UNAUTHENTICATED_RECEIPT`, not an attestation. It does not
+contact GitHub, authenticate job provenance, hash files, run a compiler,
+or elevate any draft. **Draft PR #25** proposes stricter canonical receipt
+input (mandatory final LF and printable ASCII/TAB/LF only); until that
+change is merged and executed, do not claim those extra rejections on main.
 Independently verify each purported run and artifact before any promotion.
 
 **Merge policy:** keep ML feature PRs draft until their specific native
