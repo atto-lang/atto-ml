@@ -59,6 +59,12 @@ if [ -s "$tmp/stderr" ] || ! cmp -s "$tmp/expected" "$tmp/stdout"; then
   echo 'GUEST_FAILED: stdout was not the exact smoke sentinel or stderr was nonempty' >&2
   exit 1
 fi
+# Check source and fixture *again*: a guest process can overwrite the fixture
+# after the preflight hash and still emit a matching success sentinel.
+linear_after="$(git hash-object "$root/src/linear.ores")" || unconfigured 'cannot rehash affine source'
+smoke_after="$(git hash-object "$root/tests/smoke.ores")" || unconfigured 'cannot rehash smoke fixture'
+[ "$linear_after" = "$EXPECTED_LINEAR_BLOB" ] || unconfigured 'affine source mutated during execution'
+[ "$smoke_after" = "$EXPECTED_SMOKE_BLOB" ] || unconfigured 'smoke fixture mutated during execution'
 compiler_after="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [ "$compiler_after" = "$EXPECTED_COMPILER_SHA256" ] || unconfigured 'compiler binary changed during test'
 printf 'UNAUTHENTICATED_GUEST_OUTPUT_MATCH source=%s fixture=%s compiler_sha256=%s\n' "$head" "$smoke" "$compiler"
