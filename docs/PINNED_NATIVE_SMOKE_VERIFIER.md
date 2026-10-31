@@ -41,7 +41,8 @@ A source commit, full Git tree and two source blob hashes are recorded.
 The verifier requires that the checked-out repository root is the Git root,
 and rejects staged/modified tracked files or nonignored untracked files both
 **before and after** guest execution. It also rechecks both source blobs and
-the compiler binary digest afterward, rejecting persistent in-flight changes.
+the source HEAD, source tree and compiler binary digest afterward, rejecting
+persistent in-flight changes.
 Ignored files and tampering that is fully reverted during execution are NOT
 ruled out; a controlled immutable read-only source mount remains necessary. This is source/bytes consistency,
 not cryptographic code-signing or an independently authenticated compiler.
@@ -55,14 +56,16 @@ sh scripts/test-smoke-verifier.sh
 ```
 
 The self-test uses a temporary mock Git repository and fake shell programs,
-never compiles an Oreslang source file, and proves 18 **structural** cases:
+never compiles an Oreslang source file, and proves 20 **structural** cases:
 missing compiler, non-absolute path, wrong HEAD, wrong source/fixture blob,
 wrong compiler digest, `/bin/true` silent success, stderr pollution, extra
 stdout, nonzero exit after correct stdout, **source modification during the
 guest command**, **fixture modification during the guest command**, wrong
 root Git tree, preexisting modified tracked or untracked source, new untracked
 source generated during execution, modifications to a third tracked file,
-and synthetic matched output.
+**guest-created empty commits (HEAD changes with the same tree)**, **guest
+commits that replace a third tracked file while leaving Git clean**, and
+synthetic matched output.
 
 The synthetic-positive case is intentional to show the limit of output
 matching: no verifier in this PR authenticates the compiler identity,
