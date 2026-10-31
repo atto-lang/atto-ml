@@ -91,9 +91,9 @@ fn cli_accepts_only_consistent_synthetic_metadata() {
         .status
         .success());
     for invalid in [
-        text.replace("\tpass\t", "\tpa\\x00ss\t"),
-        text.replace("\tpass\t", "\tpa\\x1bss\t"),
-        text.replace("\tpass\t", "\tpa\\x7fss\t"),
+        text.replace("\tpass\t", "\tpa\x00ss\t"),
+        text.replace("\tpass\t", "\tpa\x1bss\t"),
+        text.replace("\tpass\t", "\tpa\x7fss\t"),
     ] {
         assert!(!Receipt::new(invalid.as_bytes()).inspect().status.success());
     }
