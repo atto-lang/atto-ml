@@ -20,7 +20,19 @@ fn positive(s: &str) -> bool {
         && s.parse::<u64>().is_ok_and(|n| n > 0)
 }
 
+// Canonical TSV is LF-terminated, printable ASCII with tab separators only.
+// In particular, no NUL, DEL, escape sequences, CR or unterminated final row.
+fn canonical_tsv(text: &str) -> bool {
+    text.ends_with('\n')
+        && text
+            .bytes()
+            .all(|b| b == b'\n' || b == b'\t' || (b' '..=b'~').contains(&b))
+}
+
 fn manifest(text: &str) -> Result<BTreeSet<(String, String, String)>, String> {
+    if !canonical_tsv(text) {
+        return Err("acceptance manifest must be canonical ASCII/LF TSV".into());
+    }
     let mut result = BTreeSet::new();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
         let c: Vec<_> = line.split('\t').collect();
@@ -51,7 +63,7 @@ fn inspect(
     if !digest(commit, 40) || !digest(tree, 40) || !digest(corpus, 64) {
         return Err("expected pins must be nonzero lowercase full digests".into());
     }
-    if text.len() as u64 > LIMIT || !text.is_ascii() || text.contains('\r') {
+    if text.len() as u64 > LIMIT || !canonical_tsv(text) {
         return Err("receipt must be bounded canonical ASCII/LF TSV".into());
     }
     let expected = manifest(cases)?;
@@ -163,6 +175,9 @@ mod tests {
             "a\tb\thost\na\tb\thost",
             "a\t b\thost",
             "\n",
+            "a\tb\thost\r\n",
+            "a\tb\thost\x00\n",
+            "a\tb\thost\x7f\n",
         ] {
             assert!(manifest(cases).is_err(), "{cases:?}");
         }
@@ -252,6 +267,9 @@ mod tests {
             valid.replace('\n', "\r\n"),
             valid.replace("pass", "páss"),
             valid.replace("pass", "pa\0ss"),
+            valid.trim_end_matches('\n').to_owned(),
+            valid.replace("pass", "pa\x1bss"),
+            valid.replace("pass", "pa\x7fss"),
             "x".repeat(LIMIT as usize + 1),
         ] {
             assert!(check(&text, CASES).is_err());
