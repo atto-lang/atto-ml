@@ -19,6 +19,12 @@ pub fnc affine_batch_into(
   float bias,
   List<float> mut outputs
 ): Result<bool, String> {
+  // Caller-owned output must never alias the input storage. The forward
+  // kernel is intentionally non-in-place until unique mutable loans are
+  // enforced by every compiler backend.
+  if outputs is inputs; do
+    return Err("affine output aliases input storage");
+  fi
   val int n = count_floats(inputs);
   if count_floats(outputs) != n; do
     return Err("affine output length mismatch");

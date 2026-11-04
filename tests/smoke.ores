@@ -7,6 +7,13 @@ pub routine main(): void {
   val List<float> weights = arr[0.0];
   val List<float> biases = arr[0.0];
 
+  // A forward output cannot borrow the same storage as its input. Reject
+  // before any write, and retain the complete caller-owned input vector.
+  val List<float> shared_forward = arr[1.0, 2.0];
+  Assert.true_throws(affine_batch_into(shared_forward, 2.0, 1.0, shared_forward).is_err());
+  Assert.equal_throws(shared_forward[0], 1.0);
+  Assert.equal_throws(shared_forward[1], 2.0);
+
   // Validate before mutation, including malformed target length.
   Assert.true_throws(
     train_affine_step(input, arr[1.0], weights, biases, 0.05).is_err()
