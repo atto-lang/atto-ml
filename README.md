@@ -25,3 +25,15 @@ This describes the repository's intended purpose, not a verified list of impleme
 - [AttoLang](https://github.com/atto-lang)
 - [ML conformance](https://github.com/atto-lang/atto-ml-conformance)
 - [Language specification](https://github.com/atto-lang/atto-spec)
+
+## Repository ownership and contribution routing
+
+**Belongs here:** High-level model execution APIs, training/inference orchestration and ML backend adapters.
+
+**Belongs elsewhere:** Tensor layouts/math in atto-tensor, autodiff in atto-autograd, numerical conformance in atto-ml-conformance.
+
+**Security and portability boundary:** Document memory budgets, trusted model formats, deterministic seeds, numerical tolerance and CPU/GPU capability fallbacks without inventing backend parity.
+
+AttoLang is the public name; preserve existing Oreslang/.ores compatibility and use canonical .atto for new portable library source. This README defines scope, not feature readiness.
+
+**Acceptance:** name exact source SHA/tree, runtime/toolchain, positive and negative checks and execution receipt before claiming support. Host-only tests and empty CI steps do not prove guest execution.
