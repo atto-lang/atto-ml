@@ -130,7 +130,15 @@ pub fnc sgd_step_into(
   List<float> gradients,
   float learning_rate
 ): Result<bool, String> {
+  // A mutable parameter loan cannot also be read as its gradient source.
+  // Enforce identity until unique-borrow checking is accepted by all backends.
+  if parameters is gradients; do
+    return Err("sgd parameters and gradients must not alias");
+  fi
   val int n = count_floats(parameters);
+  if n == 0; do
+    return Err("sgd requires a nonempty parameter vector");
+  fi
   if count_floats(gradients) != n; do
     return Err("sgd gradient length mismatch");
   fi

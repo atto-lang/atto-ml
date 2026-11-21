@@ -34,6 +34,13 @@ pub routine main(): void {
   Assert.true_throws(sgd_step_into(params, arr[2.0], 0.5).is_ok());
   Assert.equal_throws(params[0], 4.0);
 
+  // An aliasing mutable parameter/gradient loan must never publish an update.
+  Assert.true_throws(sgd_step_into(params, params, 0.5).is_err());
+  Assert.equal_throws(params[0], 4.0);
+  // A no-op empty update must not count as a successful optimizer step.
+  val List<float> empty_parameters = arr[];
+  Assert.true_throws(sgd_step_into(empty_parameters, arr[], 0.5).is_err());
+
   val List<float> untouched = arr[10.0];
   Assert.true_throws(sgd_step_into(untouched, arr[], 0.5).is_err());
   Assert.equal_throws(untouched[0], 10.0);
