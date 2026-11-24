@@ -51,8 +51,11 @@ fn inspect(
     if !digest(commit, 40) || !digest(tree, 40) || !digest(corpus, 64) {
         return Err("expected pins must be nonzero lowercase full digests".into());
     }
-    if text.len() as u64 > LIMIT || !text.is_ascii() || text.contains('\r') {
-        return Err("receipt must be bounded canonical ASCII/LF TSV".into());
+    if text.len() as u64 > LIMIT
+        || !text.ends_with('\n')
+        || text.bytes().any(|b| !matches!(b, b'\t' | b'\n' | b' '..=b'~'))
+    {
+        return Err("receipt must be bounded printable ASCII/LF TSV with a final newline".into());
     }
     let expected = manifest(cases)?;
     let mut lines = text.lines();
@@ -256,6 +259,16 @@ mod tests {
         ] {
             assert!(check(&text, CASES).is_err());
         }
+    }
+    #[test]
+    fn truncated_final_record_and_control_bytes_fail_closed() {
+        let valid = receipt(CASES);
+        assert!(check(valid.trim_end_matches('\n'), CASES).is_err());
+        for control in ['\0', '\u{000b}', '\u{001b}', '\u{007f}'] {
+            let modified = valid.replace("\tpass\t", &format!("\tpa{control}ss\t"));
+            assert!(check(&modified, CASES).is_err(), "control={control:?}");
+        }
+        assert!(check(&valid.replace("\n", "\r\n"), CASES).is_err());
     }
     #[test]
     fn header_and_column_count_are_strict() {
