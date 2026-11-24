@@ -1,17 +1,17 @@
 // Cross-repository integration, requires sibling checkout:
-// workspace/oreslang-ml and workspace/oreslang-autograd.
+// workspace/atto-ml and workspace/atto-autograd.
 // Pure-Oreslang scalar reverse-mode model: y_hat = weight*x + bias,
 // loss = (y_hat - target)^2. No analytic differentiation in this example.
 import module Assert from "std/assert";
-import class TapeF64 from "../../oreslang-autograd/src/tape";
-import fnc forward_checked_into from "../../oreslang-autograd/src/forward_checked";
-import fnc backward_checked_into from "../../oreslang-autograd/src/backward_checked";
+import class TapeF64 from "../../atto-autograd/src/tape.ores";
+import module ForwardChecked from "../../atto-autograd/src/forward_checked.ores";
+import module BackwardChecked from "../../atto-autograd/src/backward_checked.ores";
+import module Linear from "../src/linear.ores";
 
 pub routine main(): void {
   val List<float> xs = arr[0.0, 1.0, 2.0, 3.0];
   val List<float> ys = arr[1.0, 3.0, 5.0, 7.0];
-  val List<float> weight = arr[0.0];
-  val List<float> bias = arr[0.0];
+  val List<float> parameters = arr[0.0, 0.0];
   val float rate = 0.05;
   let float last_loss = 0.0;
 
@@ -26,26 +26,30 @@ pub routine main(): void {
         arr[0, 0, 0, 0, 2, 1, 1, 2],
         arr[-1, -1, -1, -1, 0, 4, 5, 6],
         arr[-1, -1, -1, -1, 1, 2, 3, 6],
-        arr[weight[0], xs[i], bias[0], 0.0 - ys[i], 0.0, 0.0, 0.0, 0.0]
+        arr[parameters[0], xs[i], parameters[1], 0.0 - ys[i], 0.0, 0.0, 0.0, 0.0]
       );
       val List<float> activations = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
       val List<float> gradients = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
       val List<float> fwd_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-      Assert.true_throws(forward_checked_into(tape, fwd_scratch, activations).is_ok());
+      Assert.true_throws(ForwardChecked.forward_checked_into(
+        rt borrow tape, rt mut borrow fwd_scratch, rt mut borrow activations
+      ).is_ok());
       val List<float> bwd_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-      Assert.true_throws(backward_checked_into(tape, activations, 7, 1.0, bwd_scratch, gradients).is_ok());
+      Assert.true_throws(BackwardChecked.backward_checked_into(
+        rt borrow tape, rt borrow activations, 7, 1.0, rt mut borrow bwd_scratch, rt mut borrow gradients
+      ).is_ok());
       grad_weight = grad_weight + gradients[0];
       grad_bias = grad_bias + gradients[2];
       batch_loss = batch_loss + activations[7];
     done
     last_loss = batch_loss / 4.0;
-    weight[0] = weight[0] - ((rate / 4.0) * grad_weight);
-    bias[0] = bias[0] - ((rate / 4.0) * grad_bias);
+    val List<float> batch_gradients = arr[grad_weight, grad_bias];
+    Assert.true_throws(Linear.sgd_step_into(rt mut borrow parameters, rt borrow batch_gradients, rate / 4.0).is_ok());
   done
 
   Assert.true_throws(last_loss < 0.000001);
-  Assert.true_throws(weight[0] > 1.99 && weight[0] < 2.01);
-  Assert.true_throws(bias[0] > 0.99 && bias[0] < 1.01);
+  Assert.true_throws(parameters[0] > 1.99 && parameters[0] < 2.01);
+  Assert.true_throws(parameters[1] > 0.99 && parameters[1] < 1.01);
   stdio.println("ORES_ML_AUTOGRAD_TRAINING_PASS");
   return;
 }

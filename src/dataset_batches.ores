@@ -1,97 +1,88 @@
 // CPU-only aligned supervised-dataset batch extraction.
 // This adapter preserves pairing of feature rows and label rows while
-// delegating numerical row selection to oreslang-tensor.
+// delegating numerical row selection to atto-tensor.
 // Caller supplies scratch for BOTH sides so a late error in either gather
 // cannot leave a partially committed feature/target batch.
 // This is not yet unique-owned Array<T>, a streaming actor runtime,
 // memory mapping, GPU transport, or production DataLoader.
-import class TensorF64 from '../../oreslang-tensor/src/tensor';
-import fnc checked_numel, validate_tensor from '../../oreslang-tensor/src/tensor';
-import fnc gather_rows_2d_f64_into from '../../oreslang-tensor/src/row_batches';
+import class TensorF64 from "../../atto-tensor/src/tensor.ores";
+import module TensorOps from "../../atto-tensor/src/tensor.ores";
+import module RowBatches from "../../atto-tensor/src/row_batches.ores";
 
-fnc length_int(List<int> xs): int {
-  let int n = 0;
-  for const value of xs do
-    n = n + 1;
-  done
-  return n;
-}
-fnc length_float(List<float> xs): int {
-  let int n = 0;
-  for const value of xs do
-    n = n + 1;
-  done
-  return n;
-}
-
-pub fnc gather_supervised_batch_f64_checked_into(
-  TensorF64 features,
-  TensorF64 labels,
-  List<int> indices,
-  List<float> mut feature_scratch,
-  List<float> mut label_scratch,
-  List<float> mut feature_output,
-  List<float> mut label_output
-): Result<bool, String> {
-  // Detect all obvious output/input and output/output aliasing before work.
-  if feature_scratch is label_scratch ||
-     feature_scratch is feature_output ||
-     feature_scratch is label_output ||
-     label_scratch is feature_output ||
-     label_scratch is label_output ||
-     feature_output is label_output; do
-    return Err("dataset batch buffers overlap");
-  fi
-  if feature_scratch is features.values ||
-     feature_scratch is labels.values ||
-     label_scratch is features.values ||
-     label_scratch is labels.values ||
-     feature_output is features.values ||
-     feature_output is labels.values ||
-     label_output is features.values ||
-     label_output is labels.values; do
-    return Err("dataset batch aliases input storage");
-  fi
-  if validate_tensor(features).is_err() || validate_tensor(labels).is_err(); do
-    return Err("invalid aligned dataset tensor");
-  fi
-  if length_int(features.shape) != 2 || length_int(labels.shape) != 2; do
-    return Err("aligned dataset requires rank 2");
-  fi
-  if features.shape[0] != labels.shape[0]; do
-    return Err("feature/label row count mismatch");
-  fi
-  val int count = length_int(indices);
-  val int data_columns = features.shape[1];
-  val int target_columns = labels.shape[1];
-  val int rows = features.shape[0];
-
-  if checked_numel(arr[count, data_columns], length_float(feature_scratch)).is_err() ||
-     checked_numel(arr[count, data_columns], length_float(feature_output)).is_err() ||
-     checked_numel(arr[count, target_columns], length_float(label_scratch)).is_err() ||
-     checked_numel(arr[count, target_columns], length_float(label_output)).is_err(); do
-    return Err("aligned batch output or scratch extent mismatch");
-  fi
-  for const index of indices do
-    if index < 0 || index >= rows; do
-      return Err("aligned batch index out of bounds");
+define module DatasetBatches as
+  pub fnc gather_supervised_batch_f64_checked_into(
+    borrow TensorF64 features,
+    borrow TensorF64 labels,
+    borrow List<int> indices,
+    borrow mut List<float> feature_scratch,
+    borrow mut List<float> label_scratch,
+    borrow mut List<float> feature_output,
+    borrow mut List<float> label_output
+  ): Result<bool, String> {
+    // Detect all obvious output/input and output/output aliasing before work.
+    if feature_scratch is label_scratch ||
+       feature_scratch is feature_output ||
+       feature_scratch is label_output ||
+       label_scratch is feature_output ||
+       label_scratch is label_output ||
+       feature_output is label_output; do
+      return Err("dataset batch buffers overlap");
     fi
-  done
+    if feature_scratch is features.values ||
+       feature_scratch is labels.values ||
+       label_scratch is features.values ||
+       label_scratch is labels.values ||
+       feature_output is features.values ||
+       feature_output is labels.values ||
+       label_output is features.values ||
+       label_output is labels.values; do
+      return Err("dataset batch aliases input storage");
+    fi
+    if TensorOps.validate_tensor(rt borrow features).is_err() || TensorOps.validate_tensor(rt borrow labels).is_err(); do
+      return Err("invalid aligned dataset tensor");
+    fi
+    if features.shape.size != 2 || labels.shape.size != 2; do
+      return Err("aligned dataset requires rank 2");
+    fi
+    if features.shape[0] != labels.shape[0]; do
+      return Err("feature/label row count mismatch");
+    fi
+    val int count = indices.size;
+    val int data_columns = features.shape[1];
+    val int target_columns = labels.shape[1];
+    val int rows = features.shape[0];
 
-  // Scratch may change before failure, but neither caller-visible output may
-  // change unless BOTH feature and label gathers complete successfully.
-  if gather_rows_2d_f64_into(features, indices, feature_scratch).is_err(); do
-    return Err("feature minibatch gather failed");
-  fi
-  if gather_rows_2d_f64_into(labels, indices, label_scratch).is_err(); do
-    return Err("label minibatch gather failed");
-  fi
+    val List<int> feature_batch_shape = arr[count, data_columns];
+    val List<int> label_batch_shape = arr[count, target_columns];
 
-  for int i = 0; i < length_float(feature_output); i++ do
-    feature_output[i] = feature_scratch[i];
-  done
-  for int i = 0; i < length_float(label_output); i++ do
-    label_output[i] = label_scratch[i];
-  done
-  return Ok(true);
-}
+    if TensorOps.checked_numel(rt borrow feature_batch_shape, feature_scratch.size).is_err() ||
+       TensorOps.checked_numel(rt borrow feature_batch_shape, feature_output.size).is_err() ||
+       TensorOps.checked_numel(rt borrow label_batch_shape, label_scratch.size).is_err() ||
+       TensorOps.checked_numel(rt borrow label_batch_shape, label_output.size).is_err(); do
+      return Err("aligned batch output or scratch extent mismatch");
+    fi
+    for int offset = 0; offset < count; offset++ do
+      val int index = indices[offset];
+      if index < 0 || index >= rows; do
+        return Err("aligned batch index out of bounds");
+      fi
+    done
+
+    // Scratch may change before failure, but neither caller-visible output may
+    // change unless BOTH feature and label gathers complete successfully.
+    if RowBatches.gather_rows_2d_f64_into(rt borrow features, rt borrow indices, rt mut borrow feature_scratch).is_err(); do
+      return Err("feature minibatch gather failed");
+    fi
+    if RowBatches.gather_rows_2d_f64_into(rt borrow labels, rt borrow indices, rt mut borrow label_scratch).is_err(); do
+      return Err("label minibatch gather failed");
+    fi
+
+    for int i = 0; i < feature_output.size; i++ do
+      feature_output[i] = feature_scratch[i];
+    done
+    for int i = 0; i < label_output.size; i++ do
+      label_output[i] = label_scratch[i];
+    done
+    return Ok(true);
+  }
+end

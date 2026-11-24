@@ -1,11 +1,12 @@
 // Pure-Oreslang two-layer ReLU network trained with reverse-mode autograd.
 // Architecture: x -> Linear(1,1) -> ReLU -> Linear(1,1) -> MSE.
 // Fixed nonlinear regression fixture: y = 1 + 2*ReLU(x).
-// Requires a sibling checkout of oreslang-autograd.
+// Requires a sibling checkout of atto-autograd.
 import module Assert from "std/assert";
-import class TapeF64 from "../../oreslang-autograd/src/tape";
-import fnc forward_checked_into from "../../oreslang-autograd/src/forward_checked";
-import fnc backward_checked_into from "../../oreslang-autograd/src/backward_checked";
+import class TapeF64 from "../../atto-autograd/src/tape.ores";
+import module ForwardChecked from "../../atto-autograd/src/forward_checked.ores";
+import module BackwardChecked from "../../atto-autograd/src/backward_checked.ores";
+import module Linear from "../src/linear.ores";
 
 pub routine main(): void {
   val List<float> xs = arr[-2.0, -1.0, 0.0, 1.0, 2.0];
@@ -37,20 +38,22 @@ pub routine main(): void {
                                              0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
       val List<float> gradients = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-      Assert.true_throws(forward_checked_into(tape, forward_scratch, saved).is_ok());
-      Assert.true_throws(backward_checked_into(tape, saved, 12, 1.0, backward_scratch, gradients).is_ok());
+      Assert.true_throws(ForwardChecked.forward_checked_into(
+        rt borrow tape, rt mut borrow forward_scratch, rt mut borrow saved
+      ).is_ok());
+      Assert.true_throws(BackwardChecked.backward_checked_into(
+        rt borrow tape, rt borrow saved, 12, 1.0, rt mut borrow backward_scratch, rt mut borrow gradients
+      ).is_ok());
       loss = loss + saved[12];
       for int p = 0; p < 4; p++ do
         sums[p] = sums[p] + gradients[p];
       done
     done
     last_loss = loss / 5.0;
-    if epoch == 0; do
+    if epoch == 0; then
       first_loss = last_loss;
     fi
-    for int p = 0; p < 4; p++ do
-      parameters[p] = parameters[p] - (rate * sums[p] / 5.0);
-    done
+    Assert.true_throws(Linear.sgd_step_into(rt mut borrow parameters, rt borrow sums, rate / 5.0).is_ok());
   done
 
   Assert.true_throws(first_loss > 1.0);

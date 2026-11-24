@@ -61,11 +61,11 @@ function train(x,y,steps=500,lr=.05){
 
 test("source uses tensor gather twice with separate output scratch, after all preflights",()=>{
   assert.match(source,/pub fnc gather_supervised_batch_f64_checked_into/);
-  assert.match(source,/gather_rows_2d_f64_into\(features, indices, feature_scratch\)/);
-  assert.match(source,/gather_rows_2d_f64_into\(labels, indices, label_scratch\)/);
+  assert.match(source,/RowBatches\.gather_rows_2d_f64_into\(rt borrow features, rt borrow indices, rt mut borrow feature_scratch\)/);
+  assert.match(source,/RowBatches\.gather_rows_2d_f64_into\(rt borrow labels, rt borrow indices, rt mut borrow label_scratch\)/);
   assert.match(source,/feature_output\[i\] = feature_scratch\[i\]/);
   assert.match(source,/label_output\[i\] = label_scratch\[i\]/);
-  const second=source.indexOf("gather_rows_2d_f64_into(labels");
+  const second=source.indexOf("RowBatches.gather_rows_2d_f64_into(rt borrow labels");
   const firstCommit=source.indexOf("feature_output[i] = feature_scratch[i]");
   assert(firstCommit>second);
   assert.match(guest,/ORES_ML_ALIGNED_DATASET_TRAINING_PASS/);
