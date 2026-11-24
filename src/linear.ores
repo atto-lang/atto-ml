@@ -89,7 +89,7 @@ define module Linear as
     if learning_rate <= 0.0; do
       return Err("learning rate must be positive");
     fi
-    if (learning_rate - learning_rate) != 0.0; do
+    if !finite_f64(learning_rate); do
       return Err("learning rate must be finite");
     fi
 
@@ -113,9 +113,10 @@ define module Linear as
       gradient_b = gradient_b + error;
     done
     val float batch_size = Integer.toFloatExact(n);
-    val float scale = 2.0 / batch_size;
-    val float next_weight = weight - (learning_rate * scale * gradient_w);
-    val float next_bias = bias - (learning_rate * scale * gradient_b);
+    // Normalize the gradient before applying the rate. Scaling the rate
+    // first can overflow even when the gradient and the update are zero.
+    val float next_weight = weight - ((learning_rate * (gradient_w / batch_size)) * 2.0);
+    val float next_bias = bias - ((learning_rate * (gradient_b / batch_size)) * 2.0);
     if !finite_f64(loss) || !finite_f64(next_weight) || !finite_f64(next_bias); do
       return Err("nonfinite affine training result");
     fi
@@ -145,7 +146,7 @@ define module Linear as
     if learning_rate <= 0.0; do
       return Err("sgd learning rate must be positive");
     fi
-    if (learning_rate - learning_rate) != 0.0; do
+    if !finite_f64(learning_rate); do
       return Err("sgd learning rate must be finite");
     fi
     for int i = 0; i < n; i++ do

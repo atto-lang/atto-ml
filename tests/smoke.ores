@@ -50,6 +50,19 @@ pub routine main(): void {
   Assert.true_throws(weights[0] > 1.99 && weights[0] < 2.01);
   Assert.true_throws(biases[0] > 0.99 && biases[0] < 1.01);
 
+  val List<float> stationary_input = arr[2.0];
+  val List<float> stationary_target = arr[2.0];
+  val List<float> stationary_weight = arr[1.0];
+  val List<float> stationary_bias = arr[0.0];
+  val Result<float, String> stationary_loss = Linear.train_affine_step(
+    rt borrow stationary_input, rt borrow stationary_target,
+    rt mut borrow stationary_weight, rt mut borrow stationary_bias, 1.0e308
+  );
+  Assert.true_throws(stationary_loss.is_ok());
+  Assert.equal_throws(stationary_loss.unwrap(), 0.0);
+  Assert.equal_throws(stationary_weight[0], 1.0);
+  Assert.equal_throws(stationary_bias[0], 0.0);
+
   val List<float> params = arr[5.0];
   Assert.true_throws(Linear.sgd_step_into(rt mut borrow params, rt borrow unit_gradient, 0.5).is_ok());
   Assert.equal_throws(params[0], 4.0);
@@ -84,6 +97,19 @@ pub routine main(): void {
   Assert.true_throws(Linear.affine_batch_into(rt borrow input, weights[0], biases[0], rt mut borrow output_untouched).is_err());
   Assert.equal_throws(output_untouched[0], 77.0);
   Assert.true_throws(Linear.mse_loss(rt borrow empty_gradients, rt borrow empty_gradients).is_err());
+  // A forward overflow at the last input leaves the whole output available for retry.
+  val List<float> wide_input = arr[1.0, 1.0e308];
+  val List<float> forward_output = arr[17.0, 19.0];
+  Assert.true_throws(Linear.affine_batch_into(
+    rt borrow wide_input, 2.0, 0.0, rt mut borrow forward_output
+  ).is_err());
+  Assert.equal_throws(forward_output[0], 17.0);
+  Assert.equal_throws(forward_output[1], 19.0);
+  Assert.true_throws(Linear.affine_batch_into(
+    rt borrow wide_input, 1.0, 0.0, rt mut borrow forward_output
+  ).is_ok());
+  Assert.equal_throws(forward_output[0], 1.0);
+  Assert.equal_throws(forward_output[1], 1.0e308);
   stdio.println("ORES_ML_TRAINING_SMOKE_PASS");
   return;
 }

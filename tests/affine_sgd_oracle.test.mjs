@@ -35,9 +35,8 @@ function affine_step(x, target, weights, biases, rate) {
     dw += e * x[i];
     db += e;
   }
-  const scale = 2 / x.length;
-  const nextW = w - rate * scale * dw;
-  const nextB = b - rate * scale * db;
+  const nextW = w - (rate * (dw / x.length)) * 2;
+  const nextB = b - (rate * (db / x.length)) * 2;
   if (![loss, nextW, nextB].every(finite)) reject('NONFINITE_RESULT');
   weights[0] = nextW;
   biases[0] = nextB;
@@ -86,6 +85,12 @@ test('affine training converges on the guest fixture', () => {
   for(let k=0;k<500;k++) {const loss=affine_step(x,y,w,b,.05);if(k===0)first=loss;last=loss;}
   assert(first>last); assert(last<1e-6);
   assert(Math.abs(w[0]-2)<.01); assert(Math.abs(b[0]-1)<.01);
+});
+test('zero-loss affine step accepts a large finite rate', () => {
+  const weights = [1], biases = [0];
+  assert.equal(affine_step([2], [2], weights, biases, 1e308), 0);
+  assert.deepEqual(weights, [1]);
+  assert.deepEqual(biases, [0]);
 });
 test('affine training rejects malformed state without partial updates', () => {
   const x=[0,1], y=[1,3], w=[0], b=[0];
