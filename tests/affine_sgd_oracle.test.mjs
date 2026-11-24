@@ -56,7 +56,7 @@ test('guest source still uses checked two-phase SGD and affine publication', () 
   assert.match(source, /pub fnc train_affine_step\(/);
   assert.match(source, /weights\[0\] = next_weight;\s*biases\[0\] = next_bias;/);
   assert.match(guest, /ORES_ML_TRAINING_SMOKE_PASS/);
-  assert.match(guest, /sgd_step_into\(vector_params, arr\[2\.0, 4\.0\], 0\.5\)/);
+  assert.match(guest, /sgd_step_into\(rt mut borrow vector_params, rt borrow vector_gradient, 0\.5\)/);
 });
 test('multi-element SGD is componentwise and deterministic', () => {
   const a = [3, 5]; sgd_into(a, [2, 4], 0.5); assert.deepEqual(a, [2, 3]);

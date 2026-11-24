@@ -20,6 +20,10 @@ cat > "$tmp/mock-accept" <<'MOCK'
 #!/bin/sh
 printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
 MOCK
+cat > "$tmp/mock-no-output" <<'MOCK'
+#!/bin/sh
+exit 0
+MOCK
 cat > "$tmp/mock-noise" <<'MOCK'
 #!/bin/sh
 printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
@@ -68,7 +72,7 @@ printf 'ORES_ML_TRAINING_SMOKE_PASS\n'
 MOCK
 chmod 700 "$tmp"/mock-*
 script="$tmp/work/scripts/test.sh"
-sha_true="$(sha256sum /bin/true | cut -d ' ' -f 1)"
+sha_no_output="$(sha256sum "$tmp/mock-no-output" | cut -d ' ' -f 1)"
 sha_good="$(sha256sum "$tmp/mock-accept" | cut -d ' ' -f 1)"
 sha_noise="$(sha256sum "$tmp/mock-noise" | cut -d ' ' -f 1)"
 sha_extra="$(sha256sum "$tmp/mock-extra" | cut -d ' ' -f 1)"
@@ -111,7 +115,7 @@ run_case 78 true "$sha_good" "$head" "$linear" "$smoke"
 run_case 78 "$tmp/mock-accept" "$sha_good" "$(printf '%040d' 1)" "$linear" "$smoke"
 run_case 78 "$tmp/mock-accept" "$sha_good" "$head" "$(printf '%040d' 1)" "$smoke"
 run_case 78 "$tmp/mock-accept" "$sha_good" "$head" "$linear" "$(printf '%040d' 1)"
-run_case 78 "$tmp/mock-accept" "$sha_true" "$head" "$linear" "$smoke"
+run_case 78 "$tmp/mock-accept" "$sha_no_output" "$head" "$linear" "$smoke"
 # A valid HEAD must also point at an independently supplied expected tree.
 run_case 78 "$tmp/mock-accept" "$sha_good" "$head" "$linear" "$smoke" "$(printf '%040d' 1)"
 # Dirty tracked and untracked files must not be silently used for compilation.
@@ -122,7 +126,7 @@ printf 'untracked source\n' > "$tmp/work/src/rogue.ores"
 run_case 78 "$tmp/mock-accept" "$sha_good" "$head" "$linear" "$smoke"
 rm "$tmp/work/src/rogue.ores"
 # An executable that exits zero but does not emit the exact marker is NOT a pass.
-run_case 1 /bin/true "$sha_true" "$head" "$linear" "$smoke"
+run_case 1 "$tmp/mock-no-output" "$sha_no_output" "$head" "$linear" "$smoke"
 run_case 1 "$tmp/mock-noise" "$sha_noise" "$head" "$linear" "$smoke"
 run_case 1 "$tmp/mock-extra" "$sha_extra" "$head" "$linear" "$smoke"
 run_case 1 "$tmp/mock-nonzero" "$sha_nonzero" "$head" "$linear" "$smoke"

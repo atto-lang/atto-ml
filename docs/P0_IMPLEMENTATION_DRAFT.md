@@ -1,6 +1,11 @@
 # Oreslang ML P0: honest minimal CPU training baseline
 
-`src/linear.ores` implements affine inference, mean-squared error, one-feature
+Import `Linear` from `src/linear.ores` for the CPU reference kernels.
+Read-only operands use `rt borrow`. Pass caller-owned output and parameter
+buffers with `rt mut borrow`. Each updating kernel validates the full result
+before writing, including when the last candidate update overflows.
+
+The module implements affine inference, mean-squared error, one-feature
 analytic-gradient SGD, and vector SGD in pure `.ores`. No Java, Python, or
 TensorFlow/PyTorch implementation is called.
 

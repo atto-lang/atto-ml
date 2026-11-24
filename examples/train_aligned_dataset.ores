@@ -4,7 +4,7 @@
 import module Assert from "std/assert";
 import class TensorF64 from "../../oreslang-tensor/src/tensor";
 import fnc gather_supervised_batch_f64_checked_into from "../src/dataset_batches";
-import fnc train_affine_step, affine_batch_into, mse_loss from "../src/linear";
+import module Linear from "../src/linear.ores";
 
 pub routine main(): void {
   val TensorF64 features = new TensorF64(arr[4, 1], arr[0.0, 1.0, 2.0, 3.0]);
@@ -45,11 +45,11 @@ pub routine main(): void {
   val List<float> weights = arr[0.0];
   val List<float> biases = arr[0.0];
   for int epoch = 0; epoch < 500; epoch++ do
-    Assert.true_throws(train_affine_step(bx, by, weights, biases, 0.05).is_ok());
+    Assert.true_throws(Linear.train_affine_step(rt borrow bx, rt borrow by, rt mut borrow weights, rt mut borrow biases, 0.05).is_ok());
   done
   val List<float> predictions = arr[0.0, 0.0, 0.0];
-  Assert.true_throws(affine_batch_into(bx, weights[0], biases[0], predictions).is_ok());
-  Assert.true_throws(mse_loss(predictions, by).unwrap() < 0.000001);
+  Assert.true_throws(Linear.affine_batch_into(rt borrow bx, weights[0], biases[0], rt mut borrow predictions).is_ok());
+  Assert.true_throws(Linear.mse_loss(rt borrow predictions, rt borrow by).unwrap() < 0.000001);
   Assert.true_throws(weights[0] > 1.99 && weights[0] < 2.01);
   Assert.true_throws(biases[0] > 0.99 && biases[0] < 1.01);
   stdio.println("ORES_ML_ALIGNED_DATASET_TRAINING_PASS");
