@@ -18,6 +18,26 @@ Machine-learning APIs, model/tensor operations, and backend-specific execution a
 - Document input types, error behavior, shape and memory ownership requirements as applicable.
 - Distinguish CPU execution, SIMD, GPU offload, and other target-specific capabilities.
 
+## CPU tensor training
+
+`Dense.forward_f64_into` computes a row-major affine layer using the Tensor
+matrix kernel. `Mlp` implements Dense → ReLU → Dense for f64 batches shaped
+`[rows, features]`. Initialize the model with parameters in `[W1, b1, W2, b2]`
+order and an SGD or AdamW configuration. `Mlp.predict` returns a tensor shaped
+`[rows, outputs]`. `Mlp.grad` returns mean squared error and writes the
+parameter gradient in the same packed order.
+
+`Mlp.fit` runs full-batch steps under an exclusive model borrow. It publishes
+parameters, optimizer moments, and the step counter together after all steps
+and final loss validation succeed. `Mlp.checkpoint` and `Mlp.restore` copy
+these values into and out of a versioned in-memory snapshot. Restore creates
+an independent model and preserves the optimizer's next step. The CPU profile
+bounds layer widths, buffer lengths, and the work per fit.
+
+Run `scripts/test-workspace.sh` with `ORESLANG_BIN` and matching sibling
+checkouts of `atto-tensor` and `atto-autograd` to execute the training and
+checkpoint fixtures.
+
 ## Verification
 
 Use checked-in tests, documented tolerances, and exact-commit runtime evidence. Host-only or compilation tests are not equivalent to executed AttoLang guest tests. Record backend gaps explicitly.

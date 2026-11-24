@@ -1,8 +1,7 @@
 # Actor-native neural networks: implementation and release gates
 
-Status: **prototype / source-only**, not an independently executed Oreslang
-compiler receipt. This document is an implementation contract, not a statement
-of five-backend parity.
+Stage 1 runs locally on GraalVM through the workspace guest suite. Actor
+execution and other backends retain the release gates below.
 
 ## Ownership and factoring
 
@@ -24,19 +23,19 @@ Rust is acceptable as an **independent test oracle**, never as an ML runtime.
 
 ## Stage 1 — eager tensor training
 
-Current integration target: `examples/train_tensor_mlp_vjp_cpu.ores` on this
-branch, stacked on `oreslang-tensor` P0 + `oreslang-autograd` PR #10.
-For each training sample:
+`examples/train_tensor_mlp_vjp_cpu.ores` exercises configured layer widths
+over rank-two f64 batches with sibling `atto-tensor` and `atto-autograd`
+checkouts. The forward pass is Dense → ReLU → Dense with mean squared error.
+The reverse pass composes the MSE, matrix multiply, ReLU, and bias reduction
+VJPs. The first weight gradient uses the transposed input and the verified
+matrix multiplication kernel.
 
-1. Forward: X @ W1 + b1 -> ReLU -> H @ W2 + b2 -> MSE.
-2. Backward: MSE VJP -> matmul dH,dW2 -> saved-ReLU VJP -> matmul dX,dW1.
-3. Accumulate deterministic minibatch gradients, preflight finite candidates.
-4. Publish parameters after preflight. The standalone sample is not yet an
-   actor-owned atomic publication; the production trainer must fence it.
-
-Single-process CPU reference first, then full tensor `Module`/Optimizer
-abstractions. A two-layer 1->2->1 MLP is not yet a general-dimension MLP or
-end-to-end generalized reverse-mode graph scheduler.
+The CPU trainer uses an exclusive model borrow and publishes after the
+requested full-batch steps and final loss succeed. Its versioned in-memory
+checkpoint copies parameters, optimizer configuration and moments, and the
+step counter. The guest compares all parameter gradients against central
+differences and checks that a resumed AdamW run matches a continuous run.
+Actor-owned publication requires the generation and version fences below.
 
 `src/adamw.ores` is a bounded pure-Oreslang reference with bias correction,
 verified disjoint scratch buffers, and staged publication of parameters and

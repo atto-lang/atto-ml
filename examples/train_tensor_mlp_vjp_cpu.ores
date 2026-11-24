@@ -1,137 +1,118 @@
-// Pure-Oreslang CPU tensor MLP integration gate, NOT a verified native run.
-// Architecture 1 -> Dense(2) -> ReLU -> Dense(1), trained on 4 examples.
-// Unlike the scalar tape demo, both dense layers and all weight VJPs use
-// rank-2 TensorF64 kernels. No host ML library or handwritten dense VJP.
-// Requires same-workspace sibling repos oreslang-tensor and oreslang-autograd,
-// including autograd PR #10; each pinned compiler run must record both SHAs.
-// Fixed dimensions keep P0 output buffers explicit until owned Array<T> lands.
-import module Assert from 'std/assert';
-import class TensorF64 from '../../oreslang-tensor/src/tensor';
-import fnc matmul_2d_f64_into, add_f64_into, relu_f64_into
-  from '../../oreslang-tensor/src/tensor';
-import fnc matmul_2d_vjp_f64_checked_into
-  from '../../oreslang-tensor/src/matmul_vjp';
-import fnc relu_vjp_f64_checked_into, mse_vjp_f64_checked_into
-  from '../../oreslang-autograd/src/tensor_training_vjp';
+// Executable CPU guest for batched tensor MLP gradients, fit and checkpoints.
+import module Assert from "std/assert";
+import class TensorF64 from "../../atto-tensor/src/tensor.ores";
+import class MlpF64 from "../src/mlp.ores";
+import class MlpOptimizerF64 from "../src/mlp.ores";
+import class MlpCheckpointF64 from "../src/mlp.ores";
+import class MlpFitReportF64 from "../src/mlp.ores";
+import module Mlp from "../src/mlp.ores";
+import module Linear from "../src/linear.ores";
+import module Dense from "../src/dense.ores";
 
-fnc finite_f64(float x): bool {
-  return (x - x) == 0.0;
+fnc loss(borrow MlpF64 model, borrow TensorF64 input, borrow TensorF64 targets): float {
+  val TensorF64 prediction = Mlp.predict(rt borrow model, rt borrow input).unwrap();
+  return Linear.mse_loss(rt borrow prediction.values, rt borrow targets.values).unwrap();
 }
 
 pub routine main(): void {
-  val List<float> inputs = arr[0.0,1.0,2.0,3.0];
-  val List<float> targets = arr[1.0,3.0,5.0,7.0];
-  // W1=[1,2], b1=[1,2], W2=[2,1], b2=[1,1].
-  val List<float> w1 = arr[0.8,0.25];
-  val List<float> b1 = arr[0.2,0.1];
-  val List<float> w2 = arr[0.5,0.3];
-  val List<float> b2 = arr[0.1];
-  val float rate = 0.02;
-  let float first_loss = 0.0;
-  let float last_loss = 0.0;
+  val TensorF64 input = new TensorF64(arr[4, 1], arr[0.0, 1.0, 2.0, 3.0]);
+  val TensorF64 targets = new TensorF64(arr[4, 1], arr[1.0, 3.0, 5.0, 7.0]);
+  val List<float> initial = arr[0.8, 0.25, 0.2, 0.1, 0.5, 0.3, 0.1];
+  val MlpOptimizerF64 sgd = Mlp.sgd(0.02);
+  val MlpF64 model = Mlp.initialize(1, 2, 1, rt borrow initial, rt borrow sgd).unwrap();
+  val List<float> gradient = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  val float initial_loss = Mlp.grad(rt borrow model, rt borrow input, rt borrow targets, rt mut borrow gradient).unwrap();
+  Assert.true_throws(initial_loss > 10.0);
 
-  for int epoch = 0; epoch < 600; epoch++ do
-    val List<float> gw1 = arr[0.0,0.0];
-    val List<float> gb1 = arr[0.0,0.0];
-    val List<float> gw2 = arr[0.0,0.0];
-    let float gb2 = 0.0;
-    let float loss = 0.0;
-    for int sample = 0; sample < 4; sample++ do
-      val TensorF64 x = new TensorF64(arr[1,1],arr[inputs[sample]]);
-      val TensorF64 first_weights = new TensorF64(arr[1,2],w1);
-      val TensorF64 first_bias = new TensorF64(arr[1,2],b1);
-      val TensorF64 second_weights = new TensorF64(arr[2,1],w2);
-      val TensorF64 second_bias = new TensorF64(arr[1,1],b2);
-      val TensorF64 target = new TensorF64(arr[1,1],arr[targets[sample]]);
-
-      // Forward pass: X@W1 + b1 -> ReLU -> H@W2 + b2.
-      val List<float> first_matmul = arr[0.0,0.0];
-      val List<float> first_preactivation = arr[0.0,0.0];
-      val List<float> hidden = arr[0.0,0.0];
-      val List<float> second_matmul = arr[0.0];
-      val List<float> prediction = arr[0.0];
-      Assert.true_throws(matmul_2d_f64_into(x,first_weights,first_matmul).is_ok());
-      Assert.true_throws(add_f64_into(
-        new TensorF64(arr[1,2],first_matmul),first_bias,first_preactivation
-      ).is_ok());
-      Assert.true_throws(relu_f64_into(
-        new TensorF64(arr[1,2],first_preactivation),hidden
-      ).is_ok());
-      Assert.true_throws(matmul_2d_f64_into(
-        new TensorF64(arr[1,2],hidden),second_weights,second_matmul
-      ).is_ok());
-      Assert.true_throws(add_f64_into(
-        new TensorF64(arr[1,1],second_matmul),second_bias,prediction
-      ).is_ok());
-      val float residual = prediction[0] - targets[sample];
-      loss = loss + residual * residual;
-
-      // Reverse pass uses reusable tensor VJP operators, not hand-written
-      // derivatives for either dense layer. The saved ReLU values are checked.
-      val List<float> dy = arr[0.0];
-      Assert.true_throws(mse_vjp_f64_checked_into(
-        new TensorF64(arr[1,1],prediction),target,dy
-      ).is_ok());
-      val TensorF64 loss_upstream = new TensorF64(arr[1,1],dy);
-      val List<float> dh_scratch = arr[0.0,0.0];
-      val List<float> dw2_scratch = arr[0.0,0.0];
-      val List<float> dh = arr[0.0,0.0];
-      val List<float> dw2 = arr[0.0,0.0];
-      Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-        new TensorF64(arr[1,2],hidden),second_weights,loss_upstream,
-        dh_scratch,dw2_scratch,dh,dw2
-      ).is_ok());
-      val List<float> dz = arr[0.0,0.0];
-      Assert.true_throws(relu_vjp_f64_checked_into(
-        new TensorF64(arr[1,2],first_preactivation),
-        new TensorF64(arr[1,2],hidden),
-        new TensorF64(arr[1,2],dh),dz
-      ).is_ok());
-      val List<float> dx_scratch = arr[0.0];
-      val List<float> dw1_scratch = arr[0.0,0.0];
-      val List<float> dx = arr[0.0];
-      val List<float> dw1 = arr[0.0,0.0];
-      Assert.true_throws(matmul_2d_vjp_f64_checked_into(
-        x,first_weights,new TensorF64(arr[1,2],dz),
-        dx_scratch,dw1_scratch,dx,dw1
-      ).is_ok());
-      for int j = 0; j < 2; j++ do
-        gw1[j] = gw1[j] + dw1[j];
-        gb1[j] = gb1[j] + dz[j];
-        gw2[j] = gw2[j] + dw2[j];
-      done
-      gb2 = gb2 + dy[0];
-    done
-
-    last_loss = loss / 4.0;
-    if epoch == 0; do
-      first_loss = last_loss;
-    fi
-    // Candidate preflight across ALL seven scalar parameters BEFORE mutation.
-    // In an actor this publication must happen under one version-fenced
-    // exclusive state loan. This standalone numeric gate has no actor state.
-    val float step_rate = rate / 4.0;
-    if !finite_f64(last_loss) || !finite_f64(gb2); do
-      Assert.true_throws(false);
-    fi
-    for int j = 0; j < 2; j++ do
-      Assert.true_throws(finite_f64(gw1[j]) && finite_f64(gb1[j]) &&
-        finite_f64(gw2[j]) &&
-        finite_f64(w1[j] - step_rate*gw1[j]) &&
-        finite_f64(b1[j] - step_rate*gb1[j]) &&
-        finite_f64(w2[j] - step_rate*gw2[j]));
-    done
-    Assert.true_throws(finite_f64(b2[0] - step_rate*gb2));
-    for int j = 0; j < 2; j++ do
-      w1[j] = w1[j] - step_rate*gw1[j];
-      b1[j] = b1[j] - step_rate*gb1[j];
-      w2[j] = w2[j] - step_rate*gw2[j];
-    done
-    b2[0] = b2[0] - step_rate*gb2;
+  val float epsilon = 1.0e-5;
+  for int i = 0; i < gradient.size; i++ do
+    val float original = model.parameters[i];
+    model.parameters[i] = original + epsilon;
+    val float plus = loss(rt borrow model, rt borrow input, rt borrow targets);
+    model.parameters[i] = original - epsilon;
+    val float minus = loss(rt borrow model, rt borrow input, rt borrow targets);
+    model.parameters[i] = original;
+    val float difference = (plus - minus) / (2.0 * epsilon) - gradient[i];
+    Assert.true_throws(difference < 1.0e-8 && difference > -1.0e-8);
   done
 
-  Assert.true_throws(first_loss > 10.0);
-  Assert.true_throws(last_loss < first_loss);
-  Assert.true_throws(last_loss < 0.000001);
+  val float initial_first = initial[0];
+  val MlpFitReportF64 trained = Mlp.fit(rt mut borrow model, rt borrow input, rt borrow targets, 600).unwrap();
+  Assert.equal_throws(trained.initial_loss, initial_loss);
+  Assert.equal_throws(trained.completed_steps, 600);
+  Assert.true_throws(trained.final_loss < 1.0e-6);
+  Assert.equal_throws(initial[0], initial_first);
+  val TensorF64 prediction = Mlp.predict(rt borrow model, rt borrow input).unwrap();
+  Assert.equal_throws(prediction.shape[0], 4);
+  Assert.equal_throws(prediction.shape[1], 1);
+  Assert.true_throws(prediction.values[3] > 6.99 && prediction.values[3] < 7.01);
+  val TensorF64 no_rows = new TensorF64(arr[0, 1], arr[]);
+  val TensorF64 empty_prediction = Mlp.predict(rt borrow model, rt borrow no_rows).unwrap();
+  Assert.equal_throws(empty_prediction.shape[0], 0);
+  Assert.equal_throws(empty_prediction.shape[1], 1);
+  Assert.equal_throws(empty_prediction.values.size, 0);
+
+  val MlpOptimizerF64 adamw = Mlp.adamw(0.03, 0.9, 0.999, 1.0e-8, 0.001);
+  val MlpF64 continuous = Mlp.initialize(1, 2, 1, rt borrow initial, rt borrow adamw).unwrap();
+  val MlpF64 partial = Mlp.initialize(1, 2, 1, rt borrow initial, rt borrow adamw).unwrap();
+  Assert.true_throws(Mlp.fit(rt mut borrow continuous, rt borrow input, rt borrow targets, 100).is_ok());
+  Assert.true_throws(Mlp.fit(rt mut borrow partial, rt borrow input, rt borrow targets, 37).is_ok());
+  val MlpCheckpointF64 snapshot = Mlp.checkpoint(rt borrow partial).unwrap();
+  val MlpF64 resumed = Mlp.restore(rt borrow snapshot).unwrap();
+  val float saved_parameter = partial.parameters[0];
+  val float saved_moment = partial.first_moment[0];
+  Assert.true_throws(Mlp.fit(rt mut borrow resumed, rt borrow input, rt borrow targets, 63).is_ok());
+  Assert.equal_throws(resumed.steps, 100);
+  Assert.true_throws(loss(rt borrow resumed, rt borrow input, rt borrow targets) < 0.01);
+  Assert.equal_throws(partial.steps, 37);
+  Assert.equal_throws(snapshot.snapshot.steps, 37);
+  Assert.equal_throws(snapshot.snapshot.parameters[0], saved_parameter);
+  Assert.equal_throws(snapshot.snapshot.first_moment[0], saved_moment);
+  for int i = 0; i < resumed.parameters.size; i++ do
+    Assert.equal_throws(resumed.parameters[i], continuous.parameters[i]);
+    Assert.equal_throws(resumed.first_moment[i], continuous.first_moment[i]);
+    Assert.equal_throws(resumed.second_moment[i], continuous.second_moment[i]);
+  done
+  val MlpF64 untouched = Mlp.restore(rt borrow snapshot).unwrap();
+  val MlpCheckpointF64 wrong_schema = new MlpCheckpointF64("unsupported", untouched);
+  Assert.true_throws(Mlp.restore(rt borrow wrong_schema).is_err());
+
+  val MlpF64 corrupt = Mlp.restore(rt borrow snapshot).unwrap();
+  corrupt.second_moment[0] = -1.0;
+  val MlpCheckpointF64 corrupt_snapshot = new MlpCheckpointF64(snapshot.schema, corrupt);
+  Assert.true_throws(Mlp.restore(rt borrow corrupt_snapshot).is_err());
+
+  val TensorF64 wrong_targets = new TensorF64(arr[2, 2], arr[1.0, 3.0, 5.0, 7.0]);
+  Assert.true_throws(Mlp.fit(rt mut borrow partial, rt borrow input, rt borrow wrong_targets, 1).is_err());
+  Assert.true_throws(Mlp.fit(rt mut borrow partial, rt borrow input, rt borrow targets, 100001).is_err());
+  Assert.equal_throws(partial.steps, 37);
+  Assert.equal_throws(partial.parameters[0], saved_parameter);
+  Assert.equal_throws(partial.first_moment[0], saved_moment);
+
+  // A finite SGD proposal can produce a nonfinite final loss. The complete
+  // fit must roll back that proposal and the step counter.
+  val MlpOptimizerF64 extreme_rate = Mlp.sgd(1.0e308);
+  val List<float> simple = arr[1.0, 0.0, 1.0, 0.0];
+  val MlpF64 explosive = Mlp.initialize(1, 1, 1, rt borrow simple, rt borrow extreme_rate).unwrap();
+  val TensorF64 single_input = new TensorF64(arr[1, 1], arr[1.0]);
+  val TensorF64 single_target = new TensorF64(arr[1, 1], arr[0.75]);
+  Assert.true_throws(Mlp.fit(rt mut borrow explosive, rt borrow single_input, rt borrow single_target, 1).is_err());
+  Assert.equal_throws(explosive.steps, 0);
+  for int i = 0; i < simple.size; i++ do
+    Assert.equal_throws(explosive.parameters[i], simple[i]);
+  done
+
+  // Dense arithmetic that overflows after the first element preserves output.
+  val TensorF64 dense_input = new TensorF64(arr[2, 1], arr[1.0, 1.0e308]);
+  val TensorF64 dense_weights = new TensorF64(arr[1, 1], arr[1.0]);
+  val List<float> bias = arr[1.0e308];
+  val List<float> scratch = arr[0.0, 0.0];
+  val List<float> output = arr[41.0, 42.0];
+  Assert.true_throws(Dense.forward_f64_into(
+    rt borrow dense_input, rt borrow dense_weights, rt borrow bias, rt mut borrow scratch, rt mut borrow output
+  ).is_err());
+  Assert.equal_throws(output[0], 41.0);
+  Assert.equal_throws(output[1], 42.0);
+
   stdio.println("ORES_ML_TENSOR_TWO_LAYER_VJP_PASS");
 }
