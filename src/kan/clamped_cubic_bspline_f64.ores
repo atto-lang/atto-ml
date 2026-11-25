@@ -278,3 +278,180 @@ pub fnc kan_clamped_cubic_dcoeff_f64(
     fi
     return Ok(gradient);
 }
+
+
+// Bounded scalar CPU KAN layer with a SHARED clamped cubic knot vector.
+// The canonical eventual tensor layout is [output][input][control] row-major,
+// written here as an explicitly borrowed flat List<float>. This is not yet
+// canonical NdArray storage or a general trainable ModelGraph execution plan.
+//
+// The output buffer is failure-atomic: scratch is caller-owned/EXPENDABLE and
+// may change on Err, but outputs are written only after every edge and all
+// output accumulations pass admission. No implicit heap allocation.
+//
+// Limits: input/output dimensions 1..32, 4..256 controls per edge, and at most
+// 65536 coefficients. The user supplies exact-sized input, bias, output and
+// scratch buffers. All inputs must lie within the SAME clamped knot domain.
+pub fnc kan_layer_forward_f64_into(
+    List<float> inputs,
+    List<float> knots,
+    List<float> coefficients,
+    List<float> biases,
+    int input_count,
+    int output_count,
+    int controls_per_edge,
+    List<float> mut outputs,
+    List<float> mut scratch
+): Result<bool, String> {
+    if input_count < 1 || input_count > 32
+        || output_count < 1 || output_count > 32
+        || controls_per_edge < 4 || controls_per_edge > 256; do
+        return Err("KAN_LAYER_DIMENSION_LIMIT");
+    fi
+    val int edge_count = input_count * output_count;
+    if controls_per_edge > 65536 / edge_count; do
+        return Err("KAN_LAYER_COEFFICIENT_QUOTA");
+    fi
+    val int required_coefficients = edge_count * controls_per_edge;
+
+    // Explicit unique-borrow requirements across inputs and mutable outputs.
+    // The guest borrow checker still needs to prove these across calls/await.
+    if outputs is scratch || outputs is inputs || scratch is inputs
+        || outputs is knots || scratch is knots
+        || outputs is coefficients || scratch is coefficients
+        || outputs is biases || scratch is biases; do
+        return Err("KAN_LAYER_ALIAS");
+    fi
+
+    let int count = 0;
+    for const x of inputs do
+        count = count + 1;
+        if count > input_count || !kan_multispan_bounded(x); do
+            return Err("KAN_LAYER_INPUT_SHAPE_OR_VALUE");
+        fi
+    done
+    if count != input_count; do
+        return Err("KAN_LAYER_INPUT_SHAPE_OR_VALUE");
+    fi
+    count = 0;
+    for const bias of biases do
+        count = count + 1;
+        if count > output_count || !kan_multispan_bounded(bias); do
+            return Err("KAN_LAYER_BIAS_SHAPE_OR_VALUE");
+        fi
+    done
+    if count != output_count; do
+        return Err("KAN_LAYER_BIAS_SHAPE_OR_VALUE");
+    fi
+    count = 0;
+    for const v of outputs do
+        count = count + 1;
+        if count > output_count; do
+            return Err("KAN_LAYER_OUTPUT_SHAPE");
+        fi
+    done
+    if count != output_count; do
+        return Err("KAN_LAYER_OUTPUT_SHAPE");
+    fi
+    count = 0;
+    for const v of scratch do
+        count = count + 1;
+        if count > output_count; do
+            return Err("KAN_LAYER_SCRATCH_SHAPE");
+        fi
+    done
+    if count != output_count; do
+        return Err("KAN_LAYER_SCRATCH_SHAPE");
+    fi
+
+    count = 0;
+    for const coefficient of coefficients do
+        count = count + 1;
+        if count > required_coefficients
+            || !kan_multispan_bounded(coefficient); do
+            return Err("KAN_LAYER_COEFFICIENT_SHAPE_OR_VALUE");
+        fi
+    done
+    if count != required_coefficients; do
+        return Err("KAN_LAYER_COEFFICIENT_SHAPE_OR_VALUE");
+    fi
+
+    // A shared grid needs one check, rather than revalidating per edge.
+    count = 0;
+    for const knot of knots do
+        count = count + 1;
+        if count > controls_per_edge + 4
+            || !kan_multispan_bounded(knot); do
+            return Err("KAN_LAYER_KNOT_SHAPE_OR_VALUE");
+        fi
+    done
+    if count != controls_per_edge + 4; do
+        return Err("KAN_LAYER_KNOT_SHAPE_OR_VALUE");
+    fi
+    val float low = knots[3];
+    val float high = knots[controls_per_edge];
+    if low >= high; do
+        return Err("KAN_LAYER_EMPTY_DOMAIN");
+    fi
+    for int k = 0; k < 4; k++ do
+        if knots[k] != low || knots[controls_per_edge + k] != high; do
+            return Err("KAN_LAYER_UNCLAMPED_KNOTS");
+        fi
+    done
+    let int repeated = 1;
+    for int k = 1; k < count; k++ do
+        if knots[k] < knots[k - 1]; do
+            return Err("KAN_LAYER_UNSORTED_KNOTS");
+        fi
+        if knots[k] == knots[k - 1]; do
+            repeated = repeated + 1;
+        else
+            repeated = 1;
+        fi
+        if k >= 4 && k < controls_per_edge && repeated >= 4; do
+            return Err("KAN_LAYER_INTERIOR_MULTIPLICITY");
+        fi
+    done
+    for int k = 4; k < controls_per_edge; k++ do
+        if knots[k] <= low || knots[k] >= high; do
+            return Err("KAN_LAYER_INTERIOR_KNOT_DOMAIN");
+        fi
+    done
+    for int i = 0; i < input_count; i++ do
+        if inputs[i] < low || inputs[i] > high; do
+            return Err("KAN_LAYER_INPUT_DOMAIN");
+        fi
+    done
+
+    // Phase 1: compute every output in caller-supplied, expendable scratch.
+    // One inactive/failed edge must not partially publish outputs.
+    for int o = 0; o < output_count; o++ do
+        let float value = biases[o];
+        for int i = 0; i < input_count; i++ do
+            val int span = kan_multispan_find_span(
+                inputs[i], knots, controls_per_edge
+            );
+            val int offset = (o * input_count + i)
+                * controls_per_edge + span - 3;
+            val Result<float, String> edge = kan_multispan_span_f64(
+                inputs[i], knots, span,
+                coefficients[offset], coefficients[offset + 1],
+                coefficients[offset + 2], coefficients[offset + 3]
+            );
+            if edge.is_err(); do
+                return Err("KAN_LAYER_EDGE_FAILURE");
+            fi
+            value = value + edge.unwrap();
+            if !kan_multispan_bounded(value); do
+                return Err("KAN_LAYER_OUTPUT_OVERFLOW");
+            fi
+        done
+        scratch[o] = value;
+    done
+
+    // Phase 2: commit only when all outputs were successfully computed.
+    for int o = 0; o < output_count; o++ do
+        outputs[o] = scratch[o];
+    done
+    return Ok(true);
+}

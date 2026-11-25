@@ -1,0 +1,53 @@
+// CPU KAN layer guest acceptance target. NOT_EXECUTED until real compiler run.
+// Shared degree-3 knots, [output][input][control] coefficient packing.
+// This tests native List<float> borrows; JS host reference is not a substitute.
+import module Assert from "std/assert";
+import fnc kan_layer_forward_f64_into
+    from "../src/kan/clamped_cubic_bspline_f64";
+
+pub routine main(): void {
+    val List<float> inputs = arr[0.25, 0.75];
+    val List<float> knots = arr[0.0,0.0,0.0,0.0,1.0,1.0,1.0,1.0];
+    val List<float> coefficients = arr[
+        0.2,0.2,0.2,0.2, 0.3,0.3,0.3,0.3,
+        0.4,0.4,0.4,0.4, 0.5,0.5,0.5,0.5
+    ];
+    val List<float> biases = arr[0.1,-0.1];
+    val List<float> outputs = arr[9.0,9.0];
+    val List<float> scratch = arr[0.0,0.0];
+    val Result<bool, String> ok = kan_layer_forward_f64_into(
+        inputs, knots, coefficients, biases, 2, 2, 4, outputs, scratch
+    );
+    Assert.true_throws(ok.is_ok());
+    Assert.true_throws(outputs[0] > 0.599999 && outputs[0] < 0.600001);
+    Assert.true_throws(outputs[1] > 0.799999 && outputs[1] < 0.800001);
+
+    // Validation failure does not change existing committed outputs.
+    val Result<bool, String> malformed = kan_layer_forward_f64_into(
+        inputs, knots, coefficients, biases, 2, 3, 4, outputs, scratch
+    );
+    Assert.true_throws(malformed.is_err());
+    Assert.true_throws(outputs[0] > 0.599999 && outputs[0] < 0.600001);
+    Assert.true_throws(outputs[1] > 0.799999 && outputs[1] < 0.800001);
+
+    // All individual control values are admitted; the fan-in sum is not.
+    val List<float> huge = arr[
+        1000000.0,1000000.0,1000000.0,1000000.0,
+        1000000.0,1000000.0,1000000.0,1000000.0,
+        1000000.0,1000000.0,1000000.0,1000000.0,
+        1000000.0,1000000.0,1000000.0,1000000.0
+    ];
+    val Result<bool, String> overflow = kan_layer_forward_f64_into(
+        inputs, knots, huge, biases, 2, 2, 4, outputs, scratch
+    );
+    Assert.true_throws(overflow.is_err());
+    Assert.true_throws(outputs[0] > 0.599999 && outputs[0] < 0.600001);
+    Assert.true_throws(outputs[1] > 0.799999 && outputs[1] < 0.800001);
+
+    // Destination and expendable scratch MUST NOT be the same buffer.
+    Assert.true_throws(kan_layer_forward_f64_into(
+        inputs, knots, coefficients, biases, 2, 2, 4, outputs, outputs
+    ).is_err());
+    stdio.println("ORES_KAN_LAYER_PASS");
+    return;
+}
