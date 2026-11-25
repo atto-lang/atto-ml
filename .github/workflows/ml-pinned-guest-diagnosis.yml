@@ -1,4 +1,4 @@
-name: ML exact dependency-stack guest diagnosis
+name: ML pinned compiler guest diagnosis
 on:
   push:
     branches: ['ci/ml-pinned-guest-diagnosis-20261125']
@@ -11,91 +11,77 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [java-jvm, llvm-f64-candidate]
+        backend: [java]
     steps:
-      - name: Checkout atto-ml (atto-lang/atto-ml)
+      - name: Checkout p0
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: atto-lang/atto-ml
-          ref: 765eba0679158c7a6950625b3e0d23c18de3a593
-          path: atto-ml
+          ref: dc632d5bbea81ac0118ba10b007d627c7f9b2e2b
+          path: p0
           persist-credentials: false
-      - name: Verify atto-ml tree
+      - name: Verify p0 immutable tree
         run: |
           set -eu
-          test "$(git -C atto-ml rev-parse HEAD)" = 765eba0679158c7a6950625b3e0d23c18de3a593
-          test "$(git -C atto-ml rev-parse 'HEAD^{tree}')" = ed83eb86d358cc64f791f9d4e13c0b943371ca39
-          test -z "$(git -C atto-ml status --porcelain)"
-          echo 'atto-lang/atto-ml 765eba0679158c7a6950625b3e0d23c18de3a593 ed83eb86d358cc64f791f9d4e13c0b943371ca39'
-      - name: Checkout atto-tensor (atto-lang/atto-tensor)
+          test "$(git -C p0 rev-parse HEAD)" = dc632d5bbea81ac0118ba10b007d627c7f9b2e2b
+          test "$(git -C p0 rev-parse 'HEAD^{tree}')" = 57d6287bfcc99c058e9a6c861230756847852875
+          test -z "$(git -C p0 status --porcelain)"
+          echo 'p0 dc632d5bbea81ac0118ba10b007d627c7f9b2e2b 57d6287bfcc99c058e9a6c861230756847852875'
+      - name: Checkout kan
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          repository: atto-lang/atto-tensor
-          ref: 1c480af5977977b893dde1db97be31078c6dd7f2
-          path: atto-tensor
+          repository: atto-lang/atto-ml
+          ref: f094927fb8cee1af3125a8e36b809d8a0fd9876b
+          path: kan
           persist-credentials: false
-      - name: Verify atto-tensor tree
+      - name: Verify kan immutable tree
         run: |
           set -eu
-          test "$(git -C atto-tensor rev-parse HEAD)" = 1c480af5977977b893dde1db97be31078c6dd7f2
-          test "$(git -C atto-tensor rev-parse 'HEAD^{tree}')" = 7573be8915ba503af95a8049f211306d6858a332
-          test -z "$(git -C atto-tensor status --porcelain)"
-          echo 'atto-lang/atto-tensor 1c480af5977977b893dde1db97be31078c6dd7f2 7573be8915ba503af95a8049f211306d6858a332'
-      - name: Checkout atto-autograd (atto-lang/atto-autograd)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: atto-lang/atto-autograd
-          ref: a46694942e7ce05f0703b647f883611ee92fba9c
-          path: atto-autograd
-          persist-credentials: false
-      - name: Verify atto-autograd tree
-        run: |
-          set -eu
-          test "$(git -C atto-autograd rev-parse HEAD)" = a46694942e7ce05f0703b647f883611ee92fba9c
-          test "$(git -C atto-autograd rev-parse 'HEAD^{tree}')" = 9ee51d952a5436e2eb484c3ae2db1d1d51c9e71b
-          test -z "$(git -C atto-autograd status --porcelain)"
-          echo 'atto-lang/atto-autograd a46694942e7ce05f0703b647f883611ee92fba9c 9ee51d952a5436e2eb484c3ae2db1d1d51c9e71b'
-      - name: Checkout compiler (atto-lang/atto-source.java)
-        if: matrix.backend == 'java-jvm'
+          test "$(git -C kan rev-parse HEAD)" = f094927fb8cee1af3125a8e36b809d8a0fd9876b
+          test "$(git -C kan rev-parse 'HEAD^{tree}')" = 721d55497e98475f12a048a53c002ce050d52f74
+          test -z "$(git -C kan status --porcelain)"
+          echo 'kan f094927fb8cee1af3125a8e36b809d8a0fd9876b 721d55497e98475f12a048a53c002ce050d52f74'
+      - name: Checkout compiler
+        if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: atto-lang/atto-source.java
           ref: b02efee4c036557278284ca444655e19cd0adc64
           path: compiler
           persist-credentials: false
-      - name: Verify compiler tree
-        if: matrix.backend == 'java-jvm'
+      - name: Verify compiler immutable tree
+        if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         run: |
           set -eu
           test "$(git -C compiler rev-parse HEAD)" = b02efee4c036557278284ca444655e19cd0adc64
           test "$(git -C compiler rev-parse 'HEAD^{tree}')" = 018f14281cb7af30c862c0dd25e1edc364148ca0
           test -z "$(git -C compiler status --porcelain)"
-          echo 'atto-lang/atto-source.java b02efee4c036557278284ca444655e19cd0adc64 018f14281cb7af30c862c0dd25e1edc364148ca0'
-      - name: Checkout compiler (atto-lang/atto-source.llvm)
-        if: matrix.backend == 'llvm-f64-candidate'
+          echo 'compiler b02efee4c036557278284ca444655e19cd0adc64 018f14281cb7af30c862c0dd25e1edc364148ca0'
+      - name: Checkout compiler
+        if: matrix.backend == 'llvm'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: atto-lang/atto-source.llvm
-          ref: 39a4529fd0b5e4575fdd4767f2d8944f3d9805d4
+          ref: 8ed25fd2ab19a21d9ec3291d42109d48229751af
           path: compiler
           persist-credentials: false
-      - name: Verify compiler tree
-        if: matrix.backend == 'llvm-f64-candidate'
+      - name: Verify compiler immutable tree
+        if: matrix.backend == 'llvm'
         run: |
           set -eu
-          test "$(git -C compiler rev-parse HEAD)" = 39a4529fd0b5e4575fdd4767f2d8944f3d9805d4
-          test "$(git -C compiler rev-parse 'HEAD^{tree}')" = 6bc2ef4968642ffd55231af733bef6155a250a46
+          test "$(git -C compiler rev-parse HEAD)" = 8ed25fd2ab19a21d9ec3291d42109d48229751af
+          test "$(git -C compiler rev-parse 'HEAD^{tree}')" = dd424d84058bdf78ba07ecdec5096a2e865e49c2
           test -z "$(git -C compiler status --porcelain)"
-          echo 'atto-lang/atto-source.llvm 39a4529fd0b5e4575fdd4767f2d8944f3d9805d4 6bc2ef4968642ffd55231af733bef6155a250a46'
+          echo 'compiler 8ed25fd2ab19a21d9ec3291d42109d48229751af dd424d84058bdf78ba07ecdec5096a2e865e49c2'
       - name: GraalVM setup
-        if: matrix.backend == 'java-jvm'
+        if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
         with:
           version: '25.3'
           java-version: '25'
           distribution: graalvm
-      - name: Build real JVM compiler
-        if: matrix.backend == 'java-jvm'
+      - name: Build Java compiler for JVM guest diagnosis
+        if: matrix.backend == 'java'
         working-directory: compiler
         run: |
           set -eu
@@ -105,62 +91,62 @@ jobs:
           test -d target/classes
           find target/classes -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum
           sha256sum target/classpath.txt
-      - name: Build candidate LLVM f64 compiler (not main)
-        if: matrix.backend == 'llvm-f64-candidate'
+      - name: Build Java native image with runtime-only TraceParent initialization
+        if: matrix.backend == 'java-aot'
         working-directory: compiler
         run: |
           set -eu
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake clang llvm-dev
+          java -version
+          native-image --version
+          mvn -B -ntp -Pnative-aot -DskipTests '-Dnative.image.optimization=-O2 --initialize-at-run-time=dev.oreslang.runtime.TraceParent' package
+          test -x target/ores-aot
+          sha256sum target/ores-aot
+      - name: Install LLVM tools
+        if: matrix.backend == 'llvm'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang llvm-dev
+      - name: Build LLVM compiler and auditor
+        if: matrix.backend == 'llvm'
+        working-directory: compiler
+        run: |
+          set -eu
           clang --version
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build --parallel 2 --target oreslang-llvmc oreslang-no-gc-ir-audit-build
           sha256sum build/oreslang-llvmc build/oreslang-no-gc-ir-audit
-      - name: Execute six real ML guest fixtures against pinned dependency candidates
+      - name: Execute exact source fixtures (not certification)
         env:
           BACKEND: ${{ matrix.backend }}
         shell: bash
         run: |
           set -euo pipefail
           result=0
-          count=0
-          for item in \
-            'tests/smoke.ores|ORES_ML_TRAINING_SMOKE_PASS' \
-            'examples/train_adamw_smoke.ores|ORES_ML_ADAMW_CHECKED_PASS' \
-            'examples/train_with_autograd.ores|ORES_ML_AUTOGRAD_TRAINING_PASS' \
-            'examples/train_two_layer_autograd.ores|ORES_ML_TWO_LAYER_RELU_AUTOGRAD_PASS' \
-            'examples/train_aligned_dataset.ores|ORES_ML_ALIGNED_DATASET_TRAINING_PASS' \
-            'examples/train_tensor_mlp_vjp_cpu.ores|ORES_ML_TENSOR_TWO_LAYER_VJP_PASS'; do
-            IFS='|' read -r fixture marker <<< "$item"
+          for item in 'p0|tests/smoke.ores|ORES_ML_TRAINING_SMOKE_PASS' 'kan|examples/kan_multispan_cubic_smoke.ores|ORES_KAN_MULTISPAN_PASS'; do
+            IFS='|' read -r root fixture marker <<< "$item"
             tmp="$(mktemp -d)"
             status=0
-            git -C atto-ml ls-tree HEAD "$fixture"
-            if [ "$BACKEND" = java-jvm ]; then
-              (cd compiler && timeout 120s java --enable-native-access=ALL-UNNAMED,org.graalvm.truffle --sun-misc-unsafe-memory-access=allow -p "target/classes:$(cat target/classpath.txt)" -m dev.oreslang/dev.oreslang.launcher.OresMain "$GITHUB_WORKSPACE/atto-ml/$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
+            if [ "$BACKEND" = java ]; then
+              (cd compiler && timeout 120s java --enable-native-access=ALL-UNNAMED,org.graalvm.truffle --sun-misc-unsafe-memory-access=allow -p "target/classes:$(cat target/classpath.txt)" -m dev.oreslang/dev.oreslang.launcher.OresMain "$GITHUB_WORKSPACE/$root/$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
+            elif [ "$BACKEND" = java-aot ]; then
+              (cd "$root" && timeout 120s "$GITHUB_WORKSPACE/compiler/target/ores-aot" --mode=aot --platform=linux "$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
             else
-              (cd compiler && timeout 120s bash scripts/compile-aot.sh "$GITHUB_WORKSPACE/atto-ml/$fixture" "$tmp/guest") >"$tmp/build.out" 2>"$tmp/build.err" || status=$?
+              (cd compiler && timeout 120s bash scripts/compile-aot.sh "$GITHUB_WORKSPACE/$root/$fixture" "$tmp/guest") || status=$?
               if [ "$status" = 0 ]; then
                 sha256sum "$tmp/guest"
                 timeout 120s "$tmp/guest" >"$tmp/out" 2>"$tmp/err" || status=$?
               else
-                cat "$tmp/build.out" "$tmp/build.err"
                 touch "$tmp/out" "$tmp/err"
               fi
             fi
             printf '%s\n' "$marker" > "$tmp/expected"
-            printf 'FIXTURE=%s BACKEND=%s EXIT=%s\n' "$fixture" "$BACKEND" "$status"
+            printf 'FIXTURE=%s/%s BACKEND=%s EXIT=%s\n' "$root" "$fixture" "$BACKEND" "$status"
             cat "$tmp/out" "$tmp/err"
             if [ "$status" != 0 ] || [ -s "$tmp/err" ] || ! cmp -s "$tmp/expected" "$tmp/out"; then
               echo 'GUEST_DIAGNOSTIC_FAILED'
               result=1
             else
-              echo 'GUEST_OUTPUT_MATCH (candidate dependency stack, not certification)'
+              echo 'GUEST_OUTPUT_MATCH (diagnostic only)'
             fi
-            count=$((count + 1))
+            test -z "$(git -C "$root" status --porcelain)" || result=1
             rm -rf "$tmp"
-          done
-          test "$count" = 6
-          for repo in atto-ml atto-tensor atto-autograd; do
-            test -z "$(git -C "$repo" status --porcelain)" || result=1
           done
           exit "$result"
