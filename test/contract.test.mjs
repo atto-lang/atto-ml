@@ -28,3 +28,20 @@ test("next acceptance step must require executable semantics",()=>{
  assert.ok(c.nextGate.length>60);
  assert.match(c.nextGate,/(implement|compile|execute)/i);
 });
+
+test("v1 contract identity and reference provenance cannot silently drift",()=>{
+ assert.deepEqual(Object.keys(c).sort(),[
+  "schemaVersion","organization","repository","mainSnapshotSha","kind",
+  "provides","requires","upstreams","fixtureIds","hostOracleRepo",
+  "hostOracleVerified","guestExecution","evidence","nextGate"
+ ].sort());
+ // A historical bootstrap snapshot, not a claim that current HEAD was tested.
+ assert.equal(c.mainSnapshotSha,"77893de4fb1f5a6b92e189f2a5f51ae520b22723");
+ assert.deepEqual(c.provides,["oreslang.ml.linear-sgd.v1"]);
+ assert.deepEqual(c.requires,["oreslang.autograd.scalar.v1","oreslang.tensor.cpu.v1"]);
+ assert.deepEqual(c.upstreams,[
+  "oreslang-autograd","oreslang-common-source","oreslang-tensor"
+ ]);
+ assert.deepEqual(c.fixtureIds,["ml/linear-sgd/v1"]);
+ assert.equal(c.hostOracleRepo,"oreslang-ml-conformance");
+});
