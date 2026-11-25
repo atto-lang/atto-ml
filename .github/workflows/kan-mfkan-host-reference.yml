@@ -11,13 +11,22 @@ on:
       - "tests/kan_multispan_input_vjp.test.mjs"
       - "tests/kan_layer_packed_cpu.test.mjs"
       - "tests/kan_layer_independent_deboor.test.mjs"
+      - "tests/kan_layer_vjp_reference.test.mjs"
       - "tests/kan_layer_vjp_cpu.test.mjs"
       - "examples/kan_layer_vjp_f64_smoke.ores"
+      - "scripts/verify-kan-layer-vjp-extended-guest.sh"
+      - "examples/kan_layer_vjp_smoke.ores"
       - "scripts/verify-kan-layer-vjp-guest.sh"
-      - "docs/KAN_LAYER_VJP_CPU_V1.md"
+      - "scripts/test-kan-guest-ci-identity.sh"
+      - "scripts/verify-kan-native-cpu-suite.sh"
+      - "scripts/test-kan-native-suite-receipts.sh"
+      - "scripts/diagnose-kan-actions-admission.sh"
+      - "scripts/test-kan-actions-admission-diagnostics.sh"
       - "examples/kan_layer_f64_smoke.ores"
       - "scripts/verify-kan-layer-guest.sh"
       - "docs/KAN_LAYER_CPU_PACKED_V1.md"
+      - "docs/KAN_NATIVE_CPU_ACCEPTANCE.md"
+      - "docs/KAN_CI_RUNNER_ADMISSION_RUNBOOK.md"
       - "src/kan/clamped_cubic_bspline_f64.ores"
       - "examples/kan_multispan_cubic_smoke.ores"
       - "scripts/verify-kan-multispan-guest.sh"
@@ -44,10 +53,16 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute bounded independent host numerical tests
-        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_layer_packed_cpu.test.mjs tests/kan_layer_independent_deboor.test.mjs tests/kan_layer_vjp_cpu.test.mjs
+        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_layer_packed_cpu.test.mjs tests/kan_layer_independent_deboor.test.mjs tests/kan_layer_vjp_reference.test.mjs tests/kan_layer_vjp_cpu.test.mjs
       - name: Verify host oracle parses
-        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs && node --check tests/kan_layer_packed_cpu.test.mjs && node --check tests/kan_layer_independent_deboor.test.mjs && node --check tests/kan_layer_vjp_cpu.test.mjs
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs && node --check tests/kan_layer_packed_cpu.test.mjs && node --check tests/kan_layer_independent_deboor.test.mjs && node --check tests/kan_layer_vjp_reference.test.mjs && node --check tests/kan_layer_vjp_cpu.test.mjs
       - name: Syntax-check pinned actual-guest verifier (does not execute guest)
-        run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-layer-guest.sh && bash -n scripts/verify-kan-layer-vjp-guest.sh
+        run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-layer-guest.sh && bash -n scripts/verify-kan-layer-vjp-guest.sh && bash -n scripts/verify-kan-layer-vjp-extended-guest.sh
+      - name: Source-free guest verifier identity admission checks
+        run: bash -n scripts/test-kan-guest-ci-identity.sh && bash scripts/test-kan-guest-ci-identity.sh
+      - name: Mock-only native suite receipt parser tests
+        run: bash -n scripts/verify-kan-native-cpu-suite.sh && bash -n scripts/test-kan-native-suite-receipts.sh && bash scripts/test-kan-native-suite-receipts.sh
+      - name: Source-free Actions admission diagnostic mock checks
+        run: bash -n scripts/diagnose-kan-actions-admission.sh && bash -n scripts/test-kan-actions-admission-diagnostics.sh && bash scripts/test-kan-actions-admission-diagnostics.sh
       - name: Mark evidence scope
         run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; MULTISPAN_NATIVE=NOT_EXECUTED; KAN_LAYER_NATIVE=NOT_EXECUTED; KAN_LAYER_VJP_NATIVE=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"

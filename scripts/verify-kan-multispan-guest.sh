@@ -2,6 +2,14 @@
 # Actual compiled Oreslang guest acceptance: no host arithmetic fallback.
 # A missing compiler or an unapproved CI carrier is NOT_EXECUTED, never PASS.
 set -euo pipefail
+# Source-repository CI identity sanity check; not export authorization.
+if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+  if [[ "${GITHUB_REPOSITORY:-}" != 'atto-lang/atto-ml' || "${GITHUB_REPOSITORY_ID:-}" != 1448720923 ]]; then
+    echo 'NOT_EXECUTED: CI source repository identity mismatch' >&2; exit 2
+  fi
+elif [[ -n "${GITHUB_ACTIONS:-}" || -n "${GITHUB_REPOSITORY:-}" || -n "${GITHUB_REPOSITORY_ID:-}" || -n "${CI:-}" ]]; then
+  echo 'NOT_EXECUTED: unverifiable CI source repository context' >&2; exit 2
+fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source="examples/kan_multispan_cubic_smoke.ores"
