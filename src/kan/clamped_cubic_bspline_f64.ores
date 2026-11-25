@@ -14,7 +14,7 @@ define module ClampedCubicBSpline as
   // Fails before unbounded work: scan at most 257 coefficients / 261 knots.
   // The returned count is the number of spline coefficients.
   fnc kan_multispan_validate(
-      List<float> knots, List<float> coefficients
+      borrow List<float> knots, borrow List<float> coefficients
   ): Result<int, String> {
       let int n = 0;
       for const value of coefficients do
@@ -77,7 +77,7 @@ define module ClampedCubicBSpline as
       return Ok(n);
   }
 
-  fnc kan_multispan_find_span(float x, List<float> knots, int n): int {
+  fnc kan_multispan_find_span(float x, borrow List<float> knots, int n): int {
       // Right endpoint belongs to the final nonempty span.
       for int i = 3; i < n; i++ do
           if x >= knots[i] && x < knots[i + 1]; do
@@ -91,7 +91,7 @@ define module ClampedCubicBSpline as
   // Called only after the canonical knot and domain admission checks.
   // No heap-sized scratch; the four local values constitute the full workspace.
   fnc kan_multispan_span_f64(
-      float x, List<float> knots, int span,
+      float x, borrow List<float> knots, int span,
       float c0, float c1, float c2, float c3
   ): Result<float, String> {
       let float d0 = c0;
@@ -124,10 +124,10 @@ define module ClampedCubicBSpline as
   }
 
   pub fnc kan_clamped_cubic_f64(
-      float x, List<float> knots, List<float> coefficients
+      float x, borrow List<float> knots, borrow List<float> coefficients
   ): Result<float, String> {
       val Result<int, String> validated =
-          kan_multispan_validate(knots, coefficients);
+          kan_multispan_validate(rt borrow knots, rt borrow coefficients);
       if validated.is_err(); do
           return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
       fi
@@ -136,9 +136,9 @@ define module ClampedCubicBSpline as
           || x < knots[3] || x > knots[n]; do
           return Err("KAN_OUTSIDE_SPLINE_DOMAIN");
       fi
-      val int span = kan_multispan_find_span(x, knots, n);
+      val int span = kan_multispan_find_span(x, rt borrow knots, n);
       return kan_multispan_span_f64(
-          x, knots, span,
+          x, rt borrow knots, span,
           coefficients[span - 3], coefficients[span - 2],
           coefficients[span - 1], coefficients[span]
       );
@@ -148,10 +148,10 @@ define module ClampedCubicBSpline as
   // q[i] = 3*(c[i+1]-c[i])/(knots[i+4]-knots[i+1]).
   // The quadratic knot vector is the original vector with its end knots removed.
   pub fnc kan_clamped_cubic_dinput_f64(
-      float x, List<float> knots, List<float> coefficients
+      float x, borrow List<float> knots, borrow List<float> coefficients
   ): Result<float, String> {
       val Result<int, String> validated =
-          kan_multispan_validate(knots, coefficients);
+          kan_multispan_validate(rt borrow knots, rt borrow coefficients);
       if validated.is_err(); do
           return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
       fi
@@ -160,7 +160,7 @@ define module ClampedCubicBSpline as
           || x < knots[3] || x > knots[n]; do
           return Err("KAN_OUTSIDE_SPLINE_DOMAIN");
       fi
-      val int span = kan_multispan_find_span(x, knots, n);
+      val int span = kan_multispan_find_span(x, rt borrow knots, n);
       let float q0 = 0.0;
       let float q1 = 0.0;
       let float q2 = 0.0;
@@ -212,13 +212,13 @@ define module ClampedCubicBSpline as
   // validated too: two separately bounded operands can exceed the gradient cap.
   // No mutation or optimizer-state publication happens on error.
   pub fnc kan_clamped_cubic_vjp_input_f64(
-      float x, List<float> knots, List<float> coefficients, float upstream
+      float x, borrow List<float> knots, borrow List<float> coefficients, float upstream
   ): Result<float, String> {
       if !kan_multispan_bounded(upstream); do
           return Err("KAN_INVALID_INPUT_VJP_UPSTREAM");
       fi
       val Result<float, String> derivative =
-          kan_clamped_cubic_dinput_f64(x, knots, coefficients);
+          kan_clamped_cubic_dinput_f64(x, rt borrow knots, rt borrow coefficients);
       if derivative.is_err(); do
           return Err("KAN_INVALID_INPUT_VJP_DERIVATIVE");
       fi
@@ -233,11 +233,11 @@ define module ClampedCubicBSpline as
   // selected span can contribute; no coefficient array or gradient tape is
   // materialized. Caller must accumulate the per-edge/microbatch fan-in.
   pub fnc kan_clamped_cubic_dcoeff_f64(
-      float x, List<float> knots, List<float> coefficients,
+      float x, borrow List<float> knots, borrow List<float> coefficients,
       int coefficient_index, float upstream
   ): Result<float, String> {
       val Result<int, String> validated =
-          kan_multispan_validate(knots, coefficients);
+          kan_multispan_validate(rt borrow knots, rt borrow coefficients);
       if validated.is_err(); do
           return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
       fi
@@ -248,7 +248,7 @@ define module ClampedCubicBSpline as
           || !kan_multispan_bounded(upstream); do
           return Err("KAN_INVALID_VJP_REQUEST");
       fi
-      val int span = kan_multispan_find_span(x, knots, n);
+      val int span = kan_multispan_find_span(x, rt borrow knots, n);
       if coefficient_index < span - 3 || coefficient_index > span; do
           return Ok(0.0);
       fi
@@ -269,7 +269,7 @@ define module ClampedCubicBSpline as
           b3 = 1.0;
       fi
       val Result<float, String> basis =
-          kan_multispan_span_f64(x, knots, span, b0, b1, b2, b3);
+          kan_multispan_span_f64(x, rt borrow knots, span, b0, b1, b2, b3);
       if basis.is_err(); do
           return Err("KAN_INVALID_VJP_BASIS");
       fi
