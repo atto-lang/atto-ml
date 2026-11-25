@@ -1,29 +1,51 @@
-# Oreslang ML
+> **AI agent instructions (organization-wide):** Before working on code, issues, or pull requests, read and follow the [organization `AGENTS.md`](https://github.com/atto-lang/.github/blob/main/AGENTS.md), including its **merge-first stealth-development policy**. Honor any repository-local `AGENTS.md`, explicit holds, and GitHub-enforced rules.
 
-Oreslang-native neural network layers, losses, optimizers and training loops on top of `oreslang-tensor` and `oreslang-autograd`.
+# atto-ml
 
-## P0 acceptance
-- CPU-only reference model, linear forward/loss/SGD and a loss-decreasing training example.
-- No hidden Python, Java or vendor ML framework implementation.
-- Data and optimizer state have explicit ownership and lifecycle.
+Machine-learning primitives and model execution infrastructure for AttoLang.
 
-See `docs/CONTRACT.md` after bootstrap PR.
+## Naming migration and language authority
 
-## KAN / multi-fidelity KAN v1 (proposal)
+This repository is maintained at [atto-lang/atto-ml](https://github.com/atto-lang/atto-ml); use `https://github.com/atto-lang/atto-ml.git` for Git remotes and canonical `.atto` source examples. The normative language contract is [atto-spec](https://github.com/atto-lang/atto-spec), with executable guest evidence tracked by [atto-platform-conformance](https://github.com/atto-lang/atto-platform-conformance). Follow current ownership, borrowing, effects, actor, and syntax rules there; do not infer implemented features from a README or unexecuted CI.
 
-`src/kan/cubic_bspline_f64.ores` introduces pure Oreslang **single-span cubic**
-KAN scalar operations and analytic derivative helpers. The candidate guest
-example is `examples/kan_mfkan_scalar_smoke.ores`.
+## Scope
 
-`reference/kan_mfkan_reference.mjs` is an independent **host-only numerical
-oracle**, not an ML runtime, with shape-checked multi-edge layers, explicit
-multi-fidelity correction and gradients. Run:
+Machine-learning APIs, model/tensor operations, and backend-specific execution adapters.
 
-```sh
-node --test tests/kan_mfkan_reference.test.mjs
-```
+## API and portability principles
 
-See [`docs/KAN_MFKAN_CPU_REFERENCE_V1.md`](docs/KAN_MFKAN_CPU_REFERENCE_V1.md)
-for the mathematical contract, out-of-domain policy, and implementation gates.
-Java/LLVM compiled KAN training and `define model` DAG composition are **not
-claimed** by the host-only tests.
+- Specify numerical/semantic behavior before assuming support on every backend.
+- Document input types, error behavior, shape and memory ownership requirements as applicable.
+- Distinguish CPU execution, SIMD, GPU offload, and other target-specific capabilities.
+
+## Verification
+
+Use checked-in tests, documented tolerances, and exact-commit runtime evidence. Host-only or compilation tests are not equivalent to executed AttoLang guest tests. Record backend gaps explicitly.
+
+## Development status
+
+This describes the repository's intended purpose, not a verified list of implemented features. Refer to checked-in code and CI for current functionality and validated commands.
+
+## Related
+
+- [AttoLang](https://github.com/atto-lang)
+- [ML conformance](https://github.com/atto-lang/atto-ml-conformance)
+- [Language specification](https://github.com/atto-lang/atto-spec)
+
+## Repository ownership and contribution routing
+
+**Belongs here:** High-level model execution APIs, training/inference orchestration and ML backend adapters.
+
+**Belongs elsewhere:** Tensor layouts/math in atto-tensor, autodiff in atto-autograd, numerical conformance in atto-ml-conformance.
+
+**Security and portability boundary:** Document memory budgets, trusted model formats, deterministic seeds, numerical tolerance and CPU/GPU capability fallbacks without inventing backend parity.
+
+AttoLang is the canonical project name; new source, examples and documentation use `.atto` and the `atto-lang` repository organization. This README defines scope, not feature readiness.
+
+**Acceptance:** name exact source SHA/tree, runtime/toolchain, positive and negative checks and execution receipt before claiming support. Host-only tests and empty CI steps do not prove guest execution.
+
+## Organization boundaries and legacy compatibility
+
+Portable ML algorithms, model-side APIs and language tooling belong in the AttoLang ecosystem; commercial hosted model serving, deployment, registries, tenant identity and metered billing belong in separately governed cloud services, not this library. Keep legacy `.ores` examples and historical package/CLI aliases compatible until their `.atto` replacements and consumers have been compiler-validated. Similar repository names are not evidence of identity-preserving transfer or source parity.
+
+Any future repository transfer or commercial spinout requires a reviewed owner/rollback plan, independently authorized source and destination, recorded repository IDs and Git commit/tree, verified access/protection, package consumers, webhooks, Actions and release continuity. Never transfer private source without explicit authorization. Verify history, controls and stepful exact-revision CI after any move; do not treat missing runner steps or host-only tests as compiled guest evidence.
