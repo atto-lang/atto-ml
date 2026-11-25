@@ -31,16 +31,16 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: atto-lang/atto-ml
-          ref: f094927fb8cee1af3125a8e36b809d8a0fd9876b
+          ref: bf1658ea24c4c9be1dc9b3726dadc53254c97538
           path: kan
           persist-credentials: false
       - name: Verify kan immutable tree
         run: |
           set -eu
-          test "$(git -C kan rev-parse HEAD)" = f094927fb8cee1af3125a8e36b809d8a0fd9876b
-          test "$(git -C kan rev-parse 'HEAD^{tree}')" = 721d55497e98475f12a048a53c002ce050d52f74
+          test "$(git -C kan rev-parse HEAD)" = bf1658ea24c4c9be1dc9b3726dadc53254c97538
+          test "$(git -C kan rev-parse 'HEAD^{tree}')" = ae91602be859266640285b02dbd777c5cdcee169
           test -z "$(git -C kan status --porcelain)"
-          echo 'kan f094927fb8cee1af3125a8e36b809d8a0fd9876b 721d55497e98475f12a048a53c002ce050d52f74'
+          echo 'kan bf1658ea24c4c9be1dc9b3726dadc53254c97538 ae91602be859266640285b02dbd777c5cdcee169'
       - name: Checkout compiler
         if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
