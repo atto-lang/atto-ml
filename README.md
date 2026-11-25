@@ -43,3 +43,9 @@ This describes the repository's intended purpose, not a verified list of impleme
 AttoLang is the canonical project name; new source, examples and documentation use `.atto` and the `atto-lang` repository organization. This README defines scope, not feature readiness.
 
 **Acceptance:** name exact source SHA/tree, runtime/toolchain, positive and negative checks and execution receipt before claiming support. Host-only tests and empty CI steps do not prove guest execution.
+
+## Organization boundaries and legacy compatibility
+
+Portable ML algorithms, model-side APIs and language tooling belong in the AttoLang ecosystem; commercial hosted model serving, deployment, registries, tenant identity and metered billing belong in separately governed cloud services, not this library. Keep legacy `.ores` examples and historical package/CLI aliases compatible until their `.atto` replacements and consumers have been compiler-validated. Similar repository names are not evidence of identity-preserving transfer or source parity.
+
+Any future repository transfer or commercial spinout requires a reviewed owner/rollback plan, independently authorized source and destination, recorded repository IDs and Git commit/tree, verified access/protection, package consumers, webhooks, Actions and release continuity. Never transfer private source without explicit authorization. Verify history, controls and stepful exact-revision CI after any move; do not treat missing runner steps or host-only tests as compiled guest evidence.
