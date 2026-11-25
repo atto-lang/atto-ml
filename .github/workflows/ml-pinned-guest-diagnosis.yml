@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [java]
+        backend: [java, java-aot]
     steps:
       - name: Checkout p0
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -31,18 +31,18 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: atto-lang/atto-ml
-          ref: bfcb0b2e0ff277f0acc1b5d197b10ab4f71ae402
+          ref: 3e4b64419d3cded48845817cc3d0f5ca16b45c81
           path: kan
           persist-credentials: false
       - name: Verify kan immutable tree
         run: |
           set -eu
-          test "$(git -C kan rev-parse HEAD)" = bfcb0b2e0ff277f0acc1b5d197b10ab4f71ae402
-          test "$(git -C kan rev-parse 'HEAD^{tree}')" = 6d25684eb2d19028b9688ac58218d28ce1c29ccc
+          test "$(git -C kan rev-parse HEAD)" = 3e4b64419d3cded48845817cc3d0f5ca16b45c81
+          test "$(git -C kan rev-parse 'HEAD^{tree}')" = 767da985963064bc7c723e434a1699e1e3292cdf
           test -z "$(git -C kan status --porcelain)"
-          echo 'kan bfcb0b2e0ff277f0acc1b5d197b10ab4f71ae402 6d25684eb2d19028b9688ac58218d28ce1c29ccc'
+          echo 'kan 3e4b64419d3cded48845817cc3d0f5ca16b45c81 767da985963064bc7c723e434a1699e1e3292cdf'
       - name: Checkout compiler
-        if: matrix.backend == 'java'
+        if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: atto-lang/atto-source.java
@@ -50,7 +50,7 @@ jobs:
           path: compiler
           persist-credentials: false
       - name: Verify compiler immutable tree
-        if: matrix.backend == 'java'
+        if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         run: |
           set -eu
           test "$(git -C compiler rev-parse HEAD)" = b02efee4c036557278284ca444655e19cd0adc64
@@ -74,7 +74,7 @@ jobs:
           test -z "$(git -C compiler status --porcelain)"
           echo 'compiler 8ed25fd2ab19a21d9ec3291d42109d48229751af dd424d84058bdf78ba07ecdec5096a2e865e49c2'
       - name: GraalVM setup
-        if: matrix.backend == 'java'
+        if: matrix.backend == 'java' || matrix.backend == 'java-aot'
         uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
         with:
           version: '25.3'
@@ -91,6 +91,16 @@ jobs:
           test -d target/classes
           find target/classes -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum
           sha256sum target/classpath.txt
+      - name: Build Java native image with runtime-only TraceParent initialization
+        if: matrix.backend == 'java-aot'
+        working-directory: compiler
+        run: |
+          set -eu
+          java -version
+          native-image --version
+          mvn -B -ntp -Pnative-aot -DskipTests '-Dnative.image.optimization=-O2 --initialize-at-run-time=dev.oreslang.runtime.TraceParent' package
+          test -x target/ores-aot
+          sha256sum target/ores-aot
       - name: Install LLVM tools
         if: matrix.backend == 'llvm'
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang llvm-dev
@@ -115,7 +125,9 @@ jobs:
             tmp="$(mktemp -d)"
             status=0
             if [ "$BACKEND" = java ]; then
-              (cd compiler && timeout 120s java --enable-native-access=ALL-UNNAMED -p "target/classes:$(cat target/classpath.txt)" -m dev.oreslang/dev.oreslang.launcher.OresMain "$GITHUB_WORKSPACE/$root/$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
+              (cd compiler && timeout 120s java --enable-native-access=ALL-UNNAMED,org.graalvm.truffle --sun-misc-unsafe-memory-access=allow -p "target/classes:$(cat target/classpath.txt)" -m dev.oreslang/dev.oreslang.launcher.OresMain "$GITHUB_WORKSPACE/$root/$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
+            elif [ "$BACKEND" = java-aot ]; then
+              (cd "$root" && timeout 120s "$GITHUB_WORKSPACE/compiler/target/ores-aot" --mode=aot --platform=linux "$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
             else
               (cd compiler && timeout 120s bash scripts/compile-aot.sh "$GITHUB_WORKSPACE/$root/$fixture" "$tmp/guest") || status=$?
               if [ "$status" = 0 ]; then
