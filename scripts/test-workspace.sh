@@ -36,3 +36,5 @@ run_case() {
 run_case examples/train_with_autograd.ores ORES_ML_AUTOGRAD_TRAINING_PASS
 run_case examples/train_two_layer_autograd.ores ORES_ML_TWO_LAYER_RELU_AUTOGRAD_PASS
 run_case examples/train_aligned_dataset.ores ORES_ML_ALIGNED_DATASET_TRAINING_PASS
+run_case examples/train_adamw_smoke.ores ORES_ML_ADAMW_CHECKED_PASS
+run_case examples/train_tensor_mlp_vjp_cpu.ores ORES_ML_TENSOR_TWO_LAYER_VJP_PASS

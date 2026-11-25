@@ -1,0 +1,455 @@
+// Bounded CPU Dense -> ReLU -> Dense model and full-batch trainer.
+import class TensorF64 from "../../atto-tensor/src/tensor.ores";
+import module TensorOps from "../../atto-tensor/src/tensor.ores";
+import module MatmulVjp from "../../atto-tensor/src/matmul_vjp.ores";
+import module TensorGradients from "../../atto-tensor/src/gradients.ores";
+import module TensorLayout from "../../atto-tensor/src/layout.atto";
+import module TensorTrainingVjp from "../../atto-autograd/src/tensor_training_vjp.ores";
+import module AdamW from "./adamw.ores";
+import module Dense from "./dense.ores";
+import module Linear from "./linear.ores";
+
+define pub class MlpOptimizerF64 as
+  pub val bool use_adamw;
+  pub val float learning_rate;
+  pub val float beta1;
+  pub val float beta2;
+  pub val float epsilon;
+  pub val float weight_decay;
+end
+
+define pub class MlpF64 as
+  pub val int features;
+  pub val int hidden;
+  pub val int outputs;
+  pub val MlpOptimizerF64 optimizer;
+  // Row-major W1, b1, row-major W2, b2.
+  pub val List<float> parameters;
+  pub val List<float> first_moment;
+  pub val List<float> second_moment;
+  pub let int steps = 0;
+end
+
+define pub class MlpFitReportF64 as
+  pub val float initial_loss;
+  pub val float final_loss;
+  pub val int completed_steps;
+end
+
+define pub class MlpCheckpointF64 as
+  pub val String schema;
+  pub val MlpF64 snapshot;
+end
+
+define class MlpForwardF64 as
+  pub val TensorF64 second_weights;
+  pub val TensorF64 preactivation;
+  pub val TensorF64 activation;
+  pub val TensorF64 predictions;
+end
+
+define module Mlp as
+  fnc finite(float value): bool {
+    return (value - value) == 0.0;
+  }
+
+  fnc model_schema(): String {
+    return "atto.ml.dense-relu-dense.f64.row-major.v1";
+  }
+
+  fnc valid_dimensions(int features, int hidden, int outputs): bool {
+    return features > 0 && features <= 1024 && hidden > 0 && hidden <= 1024 &&
+      outputs > 0 && outputs <= 1024 && parameter_count(features, hidden, outputs) <= 1048576;
+  }
+
+  fnc parameter_count(int features, int hidden, int outputs): int {
+    return features * hidden + hidden + hidden * outputs + outputs;
+  }
+
+  fnc zeros(int count): List<float> {
+    val List<float> values = arr[];
+    for int i = 0; i < count; i++ do
+      values.add(0.0);
+    done
+    return values;
+  }
+
+  fnc copy_values(borrow List<float> source, int start, int count): List<float> {
+    val List<float> result = arr[];
+    for int i = 0; i < count; i++ do
+      result.add(source[start + i]);
+    done
+    return result;
+  }
+
+  fnc copy_optimizer(borrow MlpOptimizerF64 optimizer): MlpOptimizerF64 {
+    return new MlpOptimizerF64(optimizer.use_adamw, optimizer.learning_rate,
+      optimizer.beta1, optimizer.beta2, optimizer.epsilon, optimizer.weight_decay);
+  }
+
+  pub fnc sgd(float learning_rate): MlpOptimizerF64 {
+    return new MlpOptimizerF64(false, learning_rate, 0.0, 0.0, 0.0, 0.0);
+  }
+
+  pub fnc adamw(float learning_rate, float beta1, float beta2, float epsilon, float weight_decay): MlpOptimizerF64 {
+    return new MlpOptimizerF64(true, learning_rate, beta1, beta2, epsilon, weight_decay);
+  }
+
+  fnc valid_optimizer(borrow MlpOptimizerF64 optimizer): bool {
+    if optimizer.use_adamw then
+      return AdamW.valid_hyperparameters(optimizer.learning_rate, optimizer.beta1,
+        optimizer.beta2, optimizer.epsilon, optimizer.weight_decay);
+    fi
+    return finite(optimizer.learning_rate) && optimizer.learning_rate > 0.0 &&
+      optimizer.beta1 == 0.0 && optimizer.beta2 == 0.0 &&
+      optimizer.epsilon == 0.0 && optimizer.weight_decay == 0.0;
+  }
+
+  pub fnc initialize(
+    int features,
+    int hidden,
+    int outputs,
+    borrow List<float> initial,
+    borrow MlpOptimizerF64 optimizer
+  ): Result<MlpF64, String> {
+    if !valid_dimensions(features, hidden, outputs) ||
+       !valid_optimizer(rt borrow optimizer) then
+      return Err("invalid MLP dimensions or optimizer");
+    fi
+    val int count = parameter_count(features, hidden, outputs);
+    if initial.size != count then
+      return Err("MLP initializer length mismatch");
+    fi
+    for int i = 0; i < count; i++ do
+      if !finite(initial[i]) then
+        return Err("MLP initializer must be finite");
+      fi
+    done
+    let int moments = 0;
+    if optimizer.use_adamw then
+      moments = count;
+    fi
+    return Ok(new MlpF64(features, hidden, outputs, copy_optimizer(rt borrow optimizer),
+      copy_values(rt borrow initial, 0, count), zeros(moments), zeros(moments)));
+  }
+
+  fnc valid_state(borrow MlpF64 model): bool {
+    if !valid_dimensions(model.features, model.hidden, model.outputs) ||
+       !valid_optimizer(rt borrow model.optimizer) || model.steps < 0 || model.steps > AdamW.max_steps() then
+      return false;
+    fi
+    val int count = parameter_count(model.features, model.hidden, model.outputs);
+    let int moments = 0;
+    if model.optimizer.use_adamw then
+      moments = count;
+    fi
+    if model.parameters.size != count || model.first_moment.size != moments ||
+       model.second_moment.size != moments || model.parameters is model.first_moment ||
+       model.parameters is model.second_moment || model.first_moment is model.second_moment then
+      return false;
+    fi
+    for int i = 0; i < count; i++ do
+      if !finite(model.parameters[i]) then
+        return false;
+      fi
+    done
+    for int i = 0; i < moments; i++ do
+      if !finite(model.first_moment[i]) || !finite(model.second_moment[i]) || model.second_moment[i] < 0.0 then
+        return false;
+      fi
+    done
+    return true;
+  }
+
+  fnc copy_state(borrow MlpF64 model): MlpF64 {
+    val MlpF64 copy = new MlpF64(model.features, model.hidden, model.outputs,
+      copy_optimizer(rt borrow model.optimizer),
+      copy_values(rt borrow model.parameters, 0, model.parameters.size),
+      copy_values(rt borrow model.first_moment, 0, model.first_moment.size),
+      copy_values(rt borrow model.second_moment, 0, model.second_moment.size));
+    copy.steps = model.steps;
+    return copy;
+  }
+
+  pub fnc checkpoint(borrow MlpF64 model): Result<MlpCheckpointF64, String> {
+    if !valid_state(rt borrow model) then
+      return Err("invalid MLP state");
+    fi
+    return Ok(new MlpCheckpointF64(model_schema(), copy_state(rt borrow model)));
+  }
+
+  pub fnc restore(borrow MlpCheckpointF64 saved): Result<MlpF64, String> {
+    if saved.schema != model_schema() || !valid_state(rt borrow saved.snapshot) then
+      return Err("incompatible or invalid MLP checkpoint");
+    fi
+    return Ok(copy_state(rt borrow saved.snapshot));
+  }
+
+  // All row counts and dimensions here have been checked against backing
+  // storage and the CPU work cap before any workspace is constructed.
+  fnc forward(
+    borrow MlpF64 model,
+    borrow List<float> parameters,
+    borrow TensorF64 input
+  ): Result<MlpForwardF64, String> {
+    val int rows = input.shape[0];
+    val int first_count = model.features * model.hidden;
+    val int second_start = first_count + model.hidden;
+    val int second_count = model.hidden * model.outputs;
+    val TensorF64 w1 = new TensorF64(arr[model.features, model.hidden],
+      copy_values(rt borrow parameters, 0, first_count));
+    val List<float> b1 = copy_values(rt borrow parameters, first_count, model.hidden);
+    val TensorF64 w2 = new TensorF64(arr[model.hidden, model.outputs],
+      copy_values(rt borrow parameters, second_start, second_count));
+    val List<float> b2 = copy_values(rt borrow parameters, second_start + second_count, model.outputs);
+
+    val List<float> first_scratch = zeros(rows * model.hidden);
+    val List<float> preactivation = zeros(rows * model.hidden);
+    match Dense.forward_f64_into(
+      rt borrow input, rt borrow w1, rt borrow b1, rt mut borrow first_scratch, rt mut borrow preactivation
+    ) over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    val TensorF64 pre = new TensorF64(arr[rows, model.hidden], preactivation);
+    val List<float> hidden = zeros(rows * model.hidden);
+    if TensorOps.relu_f64_into(rt borrow pre, rt mut borrow hidden).is_err() then
+      return Err("MLP ReLU failed");
+    fi
+    val TensorF64 activation = new TensorF64(arr[rows, model.hidden], hidden);
+    val List<float> second_scratch = zeros(rows * model.outputs);
+    val List<float> output = zeros(rows * model.outputs);
+    match Dense.forward_f64_into(
+      rt borrow activation, rt borrow w2, rt borrow b2, rt mut borrow second_scratch, rt mut borrow output
+    ) over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    return Ok(new MlpForwardF64(w2, pre, activation, new TensorF64(arr[rows, model.outputs], output)));
+  }
+
+  // Returns the nominal per-pass multiply/add count or -1 if the input is
+  // invalid or its CPU workspace/workload exceeds this profile.
+  fnc forward_work(borrow MlpF64 model, borrow TensorF64 input): int {
+    if !valid_state(rt borrow model) || input.shape.size != 2 || input.shape[1] != model.features then
+      return -1;
+    fi
+    val int rows = input.shape[0];
+    if rows < 0 || rows > 1048576 then
+      return -1;
+    fi
+    val int work = rows * model.hidden * (model.features + model.outputs);
+    if rows * model.hidden > 1048576 || rows * model.outputs > 1048576 || work > 4194304 ||
+       TensorOps.validate_tensor(rt borrow input).is_err() then
+      return -1;
+    fi
+    return work;
+  }
+
+  fnc valid_targets(borrow MlpF64 model, borrow TensorF64 input, borrow TensorF64 targets): bool {
+    return input.shape[0] > 0 && targets.shape.size == 2 && targets.shape[0] == input.shape[0] &&
+      targets.shape[1] == model.outputs && TensorOps.validate_tensor(rt borrow targets).is_ok();
+  }
+
+  pub fnc predict(borrow MlpF64 model, borrow TensorF64 input): Result<TensorF64, String> {
+    if forward_work(rt borrow model, rt borrow input) < 0 then
+      return Err("invalid MLP state, input shape or workload");
+    fi
+    val Result<MlpForwardF64, String> evaluated = forward(rt borrow model, rt borrow model.parameters, rt borrow input);
+    match evaluated over
+      on Err(message) -> { return Err(message); }
+      on Ok(pass) -> { return Ok(pass.predictions); }
+    end
+  }
+
+  fnc loss_gradient(
+    borrow MlpF64 model,
+    borrow List<float> parameters,
+    borrow TensorF64 input,
+    borrow TensorF64 targets,
+    borrow mut List<float> gradient
+  ): Result<float, String> {
+    val Result<MlpForwardF64, String> evaluated = forward(rt borrow model, rt borrow parameters, rt borrow input);
+    match evaluated over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    val MlpForwardF64 pass = evaluated.unwrap();
+    val Result<float, String> loss = Linear.mse_loss(rt borrow pass.predictions.values, rt borrow targets.values);
+    if loss.is_err() then
+      return Err("nonfinite MLP loss");
+    fi
+    val int rows = input.shape[0];
+
+    val List<float> dy = zeros(rows * model.outputs);
+    if TensorTrainingVjp.mse_vjp_f64_checked_into(
+      rt borrow pass.predictions, rt borrow targets, rt mut borrow dy
+    ).is_err() then
+      return Err("MLP loss gradient failed");
+    fi
+    val TensorF64 upstream = new TensorF64(arr[rows, model.outputs], dy);
+    val List<int> second_bias_shape = arr[1, model.outputs];
+    val List<float> second_bias_scratch = zeros(model.outputs);
+    val List<float> db2 = zeros(model.outputs);
+    if TensorGradients.sum_to_shape_f64_checked_into(
+      rt borrow upstream, rt borrow second_bias_shape, rt mut borrow second_bias_scratch, rt mut borrow db2
+    ).is_err() then
+      return Err("MLP output bias gradient failed");
+    fi
+
+    val List<float> hidden_scratch = zeros(rows * model.hidden);
+    val List<float> second_weight_scratch = zeros(model.hidden * model.outputs);
+    val List<float> dh = zeros(rows * model.hidden);
+    val List<float> dw2 = zeros(model.hidden * model.outputs);
+    if MatmulVjp.matmul_2d_vjp_f64_checked_into(
+      rt borrow pass.activation, rt borrow pass.second_weights, rt borrow upstream,
+      rt mut borrow hidden_scratch, rt mut borrow second_weight_scratch, rt mut borrow dh, rt mut borrow dw2
+    ).is_err() then
+      return Err("MLP second dense gradient failed");
+    fi
+    val TensorF64 hidden_gradient = new TensorF64(arr[rows, model.hidden], dh);
+    val List<float> dz = zeros(rows * model.hidden);
+    if TensorTrainingVjp.relu_vjp_f64_checked_into(
+      rt borrow pass.preactivation, rt borrow pass.activation, rt borrow hidden_gradient, rt mut borrow dz
+    ).is_err() then
+      return Err("MLP ReLU gradient failed");
+    fi
+    val TensorF64 preactivation_gradient = new TensorF64(arr[rows, model.hidden], dz);
+
+    val List<int> first_bias_shape = arr[1, model.hidden];
+    val List<float> first_bias_scratch = zeros(model.hidden);
+    val List<float> db1 = zeros(model.hidden);
+    if TensorGradients.sum_to_shape_f64_checked_into(
+      rt borrow preactivation_gradient, rt borrow first_bias_shape, rt mut borrow first_bias_scratch, rt mut borrow db1
+    ).is_err() then
+      return Err("MLP hidden bias gradient failed");
+    fi
+
+    // dW1 = X^T dZ. The first layer only needs the parameter gradient.
+    val List<float> transposed_values = zeros(input.values.size);
+    if TensorLayout.aos_to_soa_f64_into(
+      rt borrow input.values, rows, model.features, rt mut borrow transposed_values
+    ).is_err() then
+      return Err("MLP input transpose failed");
+    fi
+    val TensorF64 transposed = new TensorF64(arr[model.features, rows], transposed_values);
+    val List<float> dw1 = zeros(model.features * model.hidden);
+    if TensorOps.matmul_2d_f64_into(rt borrow transposed, rt borrow preactivation_gradient, rt mut borrow dw1).is_err() then
+      return Err("MLP first weight gradient failed");
+    fi
+
+    for int i = 0; i < dw1.size; i++ do
+      gradient[i] = dw1[i];
+    done
+    for int i = 0; i < db1.size; i++ do
+      gradient[dw1.size + i] = db1[i];
+    done
+    val int second_start = dw1.size + db1.size;
+    for int i = 0; i < dw2.size; i++ do
+      gradient[second_start + i] = dw2[i];
+    done
+    for int i = 0; i < db2.size; i++ do
+      gradient[second_start + dw2.size + i] = db2[i];
+    done
+    return loss;
+  }
+
+  pub fnc grad(
+    borrow MlpF64 model,
+    borrow TensorF64 input,
+    borrow TensorF64 targets,
+    borrow mut List<float> gradient
+  ): Result<float, String> {
+    if gradient is model.parameters || gradient is model.first_moment || gradient is model.second_moment ||
+       gradient is input.values || gradient is targets.values then
+      return Err("MLP gradient output aliases inputs");
+    fi
+    if forward_work(rt borrow model, rt borrow input) < 0 ||
+       !valid_targets(rt borrow model, rt borrow input, rt borrow targets) || gradient.size != model.parameters.size then
+      return Err("invalid MLP state, training batch or gradient capacity");
+    fi
+    return loss_gradient(rt borrow model, rt borrow model.parameters, rt borrow input, rt borrow targets, rt mut borrow gradient);
+  }
+
+  // Run the whole fit on private candidates. The model is published once,
+  // after every requested optimizer step and the final loss have succeeded.
+  pub fnc fit(
+    borrow mut MlpF64 model,
+    borrow TensorF64 input,
+    borrow TensorF64 targets,
+    int epochs
+  ): Result<MlpFitReportF64, String> {
+    val int work = forward_work(rt borrow model, rt borrow input);
+    if work < 0 || !valid_targets(rt borrow model, rt borrow input, rt borrow targets) then
+      return Err("invalid MLP state or training batch");
+    fi
+    if epochs < 1 || epochs > AdamW.max_steps() - model.steps || work * (epochs * 4 + 1) > 100663296 then
+      return Err("MLP fit exceeds the CPU work or step budget");
+    fi
+    if model.parameters is input.values || model.parameters is targets.values ||
+       model.first_moment is input.values || model.first_moment is targets.values ||
+       model.second_moment is input.values || model.second_moment is targets.values then
+      return Err("MLP state and training batch must be disjoint");
+    fi
+
+    val int count = model.parameters.size;
+    val int moment_count = model.first_moment.size;
+    val List<float> weights = copy_values(rt borrow model.parameters, 0, count);
+    val List<float> first = copy_values(rt borrow model.first_moment, 0, moment_count);
+    val List<float> second = copy_values(rt borrow model.second_moment, 0, moment_count);
+    val List<float> next_weights = zeros(moment_count);
+    val List<float> next_first = zeros(moment_count);
+    val List<float> next_second = zeros(moment_count);
+    val List<float> gradient = zeros(count);
+    let float initial_loss = 0.0;
+    for int epoch = 0; epoch < epochs; epoch++ do
+      val Result<float, String> loss = loss_gradient(
+        rt borrow model, rt borrow weights, rt borrow input, rt borrow targets, rt mut borrow gradient
+      );
+      match loss over
+        on Err(message) -> { return Err(message); }
+        on Ok(_) -> {}
+      end
+      if epoch == 0 then
+        initial_loss = loss.unwrap();
+      fi
+      if model.optimizer.use_adamw then
+        match AdamW.adamw_step_f64_checked_into(
+          rt mut borrow weights, rt borrow gradient, rt mut borrow first, rt mut borrow second,
+          rt mut borrow next_weights, rt mut borrow next_first, rt mut borrow next_second,
+          model.optimizer.learning_rate, model.optimizer.beta1, model.optimizer.beta2,
+          model.optimizer.epsilon, model.optimizer.weight_decay, model.steps + epoch + 1
+        ) over
+          on Err(message) -> { return Err(message); }
+          on Ok(_) -> {}
+        end
+      else
+        match Linear.sgd_step_into(rt mut borrow weights, rt borrow gradient, model.optimizer.learning_rate) over
+          on Err(message) -> { return Err(message); }
+          on Ok(_) -> {}
+        end
+      fi
+    done
+
+    val Result<MlpForwardF64, String> evaluated = forward(rt borrow model, rt borrow weights, rt borrow input);
+    match evaluated over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    val MlpForwardF64 pass = evaluated.unwrap();
+    val Result<float, String> final_loss = Linear.mse_loss(rt borrow pass.predictions.values, rt borrow targets.values);
+    if final_loss.is_err() then
+      return Err("nonfinite MLP loss after optimization");
+    fi
+    val MlpFitReportF64 report = new MlpFitReportF64(initial_loss, final_loss.unwrap(), model.steps + epochs);
+    for int i = 0; i < count; i++ do
+      model.parameters[i] = weights[i];
+    done
+    for int i = 0; i < moment_count; i++ do
+      model.first_moment[i] = first[i];
+      model.second_moment[i] = second[i];
+    done
+    model.steps = report.completed_steps;
+    return Ok(report);
+  }
+end

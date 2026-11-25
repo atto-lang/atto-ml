@@ -1,0 +1,75 @@
+// Pure Oreslang AdamW acceptance target; execute with pinned compiler and
+// exact source SHA. No fake receipt or host-framework numerical substitution.
+import module Assert from "std/assert";
+import module AdamW from "../src/adamw.ores";
+
+fnc near(float actual, float expected): bool {
+  return actual - expected <= 2.0e-15 && expected - actual <= 2.0e-15;
+}
+
+pub routine main(): void {
+  val List<float> parameters = arr[1.0,2.0];
+  val List<float> gradients = arr[0.5,-0.5];
+  val List<float> m = arr[0.0,0.0];
+  val List<float> v = arr[0.0,0.0];
+  val List<float> candidate_p = arr[0.0,0.0];
+  val List<float> candidate_m = arr[0.0,0.0];
+  val List<float> candidate_v = arr[0.0,0.0];
+
+  Assert.true_throws(AdamW.adamw_step_f64_checked_into(
+    rt mut borrow parameters, rt borrow gradients, rt mut borrow m, rt mut borrow v, rt mut borrow candidate_p, rt mut borrow candidate_m, rt mut borrow candidate_v,
+    0.01, 0.9, 0.999, 0.00000001, 0.01, 1
+  ).is_ok());
+  Assert.true_throws(near(parameters[0], 0.9899000002));
+  Assert.true_throws(near(parameters[1], 2.0097999998));
+  Assert.true_throws(near(m[0], 0.05));
+  Assert.true_throws(near(v[0], 0.00025));
+
+  val float saved_p = parameters[0];
+  val float saved_m = m[0];
+  val float saved_v = v[0];
+  Assert.true_throws(AdamW.adamw_step_f64_checked_into(
+    rt mut borrow parameters, rt borrow gradients, rt mut borrow m, rt mut borrow v, rt mut borrow candidate_p, rt mut borrow candidate_m, rt mut borrow candidate_v,
+    0.01, 0.9, 0.999, 0.00000001, 0.01, 0
+  ).is_err());
+  Assert.true_throws(parameters[0] == saved_p &&
+    m[0] == saved_m && v[0] == saved_v);
+
+  Assert.true_throws(AdamW.adamw_step_f64_checked_into(
+    rt mut borrow parameters, rt borrow gradients, rt mut borrow m, rt mut borrow v, rt mut borrow candidate_p, rt mut borrow candidate_m, rt mut borrow candidate_v,
+    0.01, 0.9, 0.999, 0.00000001, 0.01, 2
+  ).is_ok());
+  Assert.true_throws(near(parameters[0], 0.9798010103999801));
+  Assert.true_throws(near(parameters[1], 2.0195990196000198));
+  Assert.true_throws(near(m[0], 0.095));
+  Assert.true_throws(near(v[0], 0.00049975));
+
+  // Output must survive invalid optimizer hyperparameters unchanged.
+  val float after_second = parameters[0];
+  Assert.true_throws(AdamW.adamw_step_f64_checked_into(
+    rt mut borrow parameters, rt borrow gradients, rt mut borrow m, rt mut borrow v, rt mut borrow candidate_p, rt mut borrow candidate_m, rt mut borrow candidate_v,
+    0.01, 1.0, 0.999, 0.00000001, 0.01, 3
+  ).is_err());
+  Assert.true_throws(parameters[0] == after_second);
+
+  // Candidate 0 is staged before candidate 1 overflows. No parameters or
+  // moments may be published from this rejected step.
+  val float saved_parameter_1 = parameters[1];
+  val float saved_moment_0 = m[0];
+  val float saved_moment_1 = m[1];
+  val float saved_variance_0 = v[0];
+  val float saved_variance_1 = v[1];
+  val List<float> overflow_gradients = arr[0.5, 1.0e308];
+  Assert.true_throws(AdamW.adamw_step_f64_checked_into(
+    rt mut borrow parameters, rt borrow overflow_gradients, rt mut borrow m, rt mut borrow v,
+    rt mut borrow candidate_p, rt mut borrow candidate_m, rt mut borrow candidate_v,
+    0.01, 0.9, 0.999, 0.00000001, 0.01, 3
+  ).is_err());
+  Assert.equal_throws(parameters[0], after_second);
+  Assert.equal_throws(parameters[1], saved_parameter_1);
+  Assert.equal_throws(m[0], saved_moment_0);
+  Assert.equal_throws(m[1], saved_moment_1);
+  Assert.equal_throws(v[0], saved_variance_0);
+  Assert.equal_throws(v[1], saved_variance_1);
+  stdio.println("ORES_ML_ADAMW_CHECKED_PASS");
+}

@@ -1,0 +1,50 @@
+// Dense layer on row-major f64 tensors: [rows, features] @ [features, units] + bias.
+import class TensorF64 from "../../atto-tensor/src/tensor.ores";
+import module TensorOps from "../../atto-tensor/src/tensor.ores";
+
+define module Dense as
+  pub fnc forward_f64_into(
+    borrow TensorF64 input,
+    borrow TensorF64 weights,
+    borrow List<float> bias,
+    borrow mut List<float> scratch,
+    borrow mut List<float> output
+  ): Result<bool, String> {
+    if scratch is output || scratch is input.values || scratch is weights.values || scratch is bias ||
+       output is input.values || output is weights.values || output is bias then
+      return Err("dense output and scratch must be disjoint from inputs");
+    fi
+    if input.shape.size != 2 || weights.shape.size != 2 ||
+       bias.size != weights.shape[1] || scratch.size != output.size then
+      return Err("dense shape mismatch");
+    fi
+    for int column = 0; column < bias.size; column++ do
+      val float value = bias[column];
+      if (value - value) != 0.0 then
+        return Err("dense bias must be finite");
+      fi
+    done
+    match TensorOps.matmul_2d_f64_into(rt borrow input, rt borrow weights, rt mut borrow scratch) over
+      on Err(message) -> { return Err(message); }
+      on Ok(_) -> {}
+    end
+    if scratch.size == 0 then
+      return Ok(true);
+    fi
+
+    val int columns = weights.shape[1];
+    for int i = 0; i < scratch.size; i = i + columns do
+      for int column = 0; column < columns; column++ do
+        val float value = scratch[i + column] + bias[column];
+        if (value - value) != 0.0 then
+          return Err("nonfinite dense activation");
+        fi
+        scratch[i + column] = value;
+      done
+    done
+    for int i = 0; i < output.size; i++ do
+      output[i] = scratch[i];
+    done
+    return Ok(true);
+  }
+end

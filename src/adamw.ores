@@ -1,0 +1,175 @@
+// Pure-Oreslang bounded reference AdamW optimizer with atomic publication.
+// No vendor library, no raw pointers, no GPU backend, no implicit allocations.
+// Caller-owned candidate buffers are scratch; only after all values pass
+// validation do the published parameter and moment arrays change.
+// The caller must enforce an exclusive actor-state transaction and a pinned
+// run/graph/incarnation/step/weight-version BEFORE calling this function.
+// List<T> aliases are guarded by identity; real ownership requires compiler
+// validated unique Array<T> loans and generation-safe frozen views.
+
+define module AdamW as
+  fnc finite_f64(float v): bool {
+    return (v - v) == 0.0;
+  }
+  pub fnc max_steps(): int {
+    return 100000;
+  }
+
+  pub fnc valid_hyperparameters(float rate, float beta1, float beta2, float epsilon, float decay): bool {
+    return finite_f64(rate) && rate > 0.0 &&
+      finite_f64(beta1) && beta1 >= 0.0 && beta1 < 1.0 &&
+      finite_f64(beta2) && beta2 >= 0.0 && beta2 < 1.0 &&
+      finite_f64(epsilon) && epsilon > 0.0 &&
+      finite_f64(decay) && decay >= 0.0;
+  }
+
+  fnc pow_for_step(float base, int step): float {
+    let int remaining = step;
+    let float factor = base;
+    let float result = 1.0;
+    while remaining > 0 do
+      if Integer.rem(remaining, 2) != 0 then
+        result = result * factor;
+      fi
+      remaining = remaining >>> 1;
+      factor = factor * factor;
+    done
+    return result;
+  }
+
+  // Normalized Newton sqrt. Avoids the long convergence tail of starting at
+  // x when x is tiny or huge. IEEE-754 normal/subnormal inputs are normalized
+  // by powers of four into [0.25,4] before 20 positive Newton iterations.
+  // The 1024-iteration normalization cap fails closed if numeric assumptions
+  // or runtime progress invariants are violated.
+  fnc sqrt_nonnegative_f64_checked(float value): Result<float, String> {
+    if !finite_f64(value) || value < 0.0 then
+      return Err("invalid AdamW variance");
+    fi
+    if value == 0.0 then
+      return Ok(0.0);
+    fi
+    let float normalized = value;
+    let float scale = 1.0;
+    let bool reached = false;
+    for int i = 0; i < 1024; i++ do
+      if normalized > 4.0 then
+        normalized = normalized / 4.0;
+        scale = scale * 2.0;
+      elif normalized < 0.25 then
+        normalized = normalized * 4.0;
+        scale = scale / 2.0;
+      else
+        reached = true;
+        break;
+      fi
+    done
+    if !reached then
+      return Err("AdamW sqrt normalization exceeded budget");
+    fi
+    let float estimate = 1.0;
+    for int i = 0; i < 20; i++ do
+      estimate = 0.5 * (estimate + normalized / estimate);
+    done
+    val float result = scale * estimate;
+    if !finite_f64(result) || result <= 0.0 then
+      return Err("AdamW sqrt failed");
+    fi
+    return Ok(result);
+  }
+
+  pub fnc adamw_step_f64_checked_into(
+    borrow mut List<float> parameters,
+    borrow List<float> gradients,
+    borrow mut List<float> first_moment,
+    borrow mut List<float> second_moment,
+    borrow mut List<float> next_parameters,
+    borrow mut List<float> next_first_moment,
+    borrow mut List<float> next_second_moment,
+    float learning_rate,
+    float beta1,
+    float beta2,
+    float epsilon,
+    float weight_decay,
+    int step
+  ): Result<bool, String> {
+    // No public state or saved gradient can share mutable candidate storage.
+    if parameters is gradients || parameters is first_moment ||
+       parameters is second_moment || first_moment is second_moment ||
+       gradients is first_moment || gradients is second_moment ||
+       next_parameters is parameters || next_parameters is gradients ||
+       next_parameters is first_moment || next_parameters is second_moment ||
+       next_first_moment is parameters || next_first_moment is gradients ||
+       next_first_moment is first_moment || next_first_moment is second_moment ||
+       next_second_moment is parameters || next_second_moment is gradients ||
+       next_second_moment is first_moment || next_second_moment is second_moment ||
+       next_parameters is next_first_moment ||
+       next_parameters is next_second_moment ||
+       next_first_moment is next_second_moment then
+      return Err("AdamW parameter, moment, gradient or scratch alias");
+    fi
+
+    val int n = parameters.size;
+    if n == 0 || gradients.size != n ||
+       first_moment.size != n || second_moment.size != n ||
+       next_parameters.size != n ||
+       next_first_moment.size != n ||
+       next_second_moment.size != n then
+      return Err("AdamW incompatible buffer lengths");
+    fi
+    if step < 1 || step > max_steps() then
+      return Err("AdamW step outside bounded reference range");
+    fi
+    if !valid_hyperparameters(learning_rate, beta1, beta2, epsilon, weight_decay) then
+      return Err("AdamW invalid hyperparameters");
+    fi
+
+    val float first_bias = 1.0 - pow_for_step(beta1, step);
+    val float second_bias = 1.0 - pow_for_step(beta2, step);
+    if first_bias <= 0.0 || second_bias <= 0.0 then
+      return Err("AdamW bias correction unavailable at this precision");
+    fi
+
+    for int i = 0; i < n; i++ do
+      val float p = parameters[i];
+      val float g = gradients[i];
+      val float m = first_moment[i];
+      val float v = second_moment[i];
+      if !finite_f64(p) || !finite_f64(g) || !finite_f64(m) ||
+         !finite_f64(v) || v < 0.0 then
+        return Err("AdamW nonfinite parameter, gradient or moment");
+      fi
+      val float new_m = beta1 * m + (1.0 - beta1) * g;
+      val float new_v = beta2 * v + (1.0 - beta2) * g * g;
+      if !finite_f64(new_m) || !finite_f64(new_v) || new_v < 0.0 then
+        return Err("AdamW nonfinite moment candidate");
+      fi
+      val float mhat = new_m / first_bias;
+      val float vhat = new_v / second_bias;
+      if !finite_f64(mhat) || !finite_f64(vhat) || vhat < 0.0 then
+        return Err("AdamW nonfinite bias-corrected moment");
+      fi
+      val Result<float,String> root = sqrt_nonnegative_f64_checked(vhat);
+      if root.is_err() then
+        return Err("AdamW invalid variance root");
+      fi
+      val float denominator = root.unwrap() + epsilon;
+      val float candidate = p - learning_rate *
+        (mhat / denominator + weight_decay * p);
+      if !finite_f64(candidate) then
+        return Err("AdamW nonfinite parameter candidate");
+      fi
+      next_parameters[i] = candidate;
+      next_first_moment[i] = new_m;
+      next_second_moment[i] = new_v;
+    done
+
+    // The entire step has passed. No fallible arithmetic after this boundary.
+    for int i = 0; i < n; i++ do
+      parameters[i] = next_parameters[i];
+      first_moment[i] = next_first_moment[i];
+      second_moment[i] = next_second_moment[i];
+    done
+    return Ok(true);
+  }
+end
