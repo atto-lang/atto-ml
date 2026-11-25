@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [llvm]
+        backend: [java]
     steps:
       - name: Checkout p0
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -80,16 +80,17 @@ jobs:
           version: '25.3'
           java-version: '25'
           distribution: graalvm
-      - name: Build Java native image
+      - name: Build Java compiler for JVM guest diagnosis
         if: matrix.backend == 'java'
         working-directory: compiler
         run: |
           set -eu
           java -version
-          native-image --version
-          mvn -B -ntp -Pnative-aot -DskipTests package
-          test -x target/ores-aot
-          sha256sum target/ores-aot
+          mvn -B -ntp -DskipTests package
+          mvn -B -ntp -DskipTests dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
+          test -d target/classes
+          find target/classes -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum
+          sha256sum target/classpath.txt
       - name: Install LLVM tools
         if: matrix.backend == 'llvm'
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang llvm-dev
@@ -114,7 +115,7 @@ jobs:
             tmp="$(mktemp -d)"
             status=0
             if [ "$BACKEND" = java ]; then
-              (cd "$root" && timeout 120s "$GITHUB_WORKSPACE/compiler/target/ores-aot" --mode=aot --platform=linux "$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
+              (cd compiler && timeout 120s java --enable-native-access=ALL-UNNAMED -p "target/classes:$(cat target/classpath.txt)" -m dev.oreslang/dev.oreslang.launcher.OresMain "$GITHUB_WORKSPACE/$root/$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
             else
               (cd compiler && timeout 120s bash scripts/compile-aot.sh "$GITHUB_WORKSPACE/$root/$fixture" "$tmp/guest") || status=$?
               if [ "$status" = 0 ]; then
