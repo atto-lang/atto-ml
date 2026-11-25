@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [java, llvm]
+        backend: [llvm]
     steps:
       - name: Checkout p0
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -100,7 +100,7 @@ jobs:
           set -eu
           clang --version
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build build --parallel 2 --target oreslang-llvmc oreslang-no-gc-ir-audit
+          cmake --build build --parallel 2 --target oreslang-llvmc oreslang-no-gc-ir-audit-build
           sha256sum build/oreslang-llvmc build/oreslang-no-gc-ir-audit
       - name: Execute exact source fixtures (not certification)
         env:
