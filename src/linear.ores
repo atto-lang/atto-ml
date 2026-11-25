@@ -1,0 +1,165 @@
+// Pure Oreslang eager CPU reference. The P0 model is a one-feature/one-output
+// affine layer y = w*x+b. It is intentionally small enough to prove an
+// end-to-end numerical training path before general tensor/autograd wiring.
+define module Linear as
+  fnc finite_f64(float x): bool {
+    return (x - x) == 0.0;
+  }
+
+  pub fnc affine_batch_into(
+    borrow List<float> inputs,
+    float weight,
+    float bias,
+    borrow mut List<float> outputs
+  ): Result<bool, String> {
+    // Caller-owned output must never alias the input storage. The forward
+    // kernel is intentionally non-in-place until unique mutable loans are
+    // enforced by every compiler backend.
+    if outputs is inputs; do
+      return Err("affine output aliases input storage");
+    fi
+    val int n = inputs.size;
+    if outputs.size != n; do
+      return Err("affine output length mismatch");
+    fi
+    if !finite_f64(weight) || !finite_f64(bias); do
+      return Err("nonfinite affine parameter");
+    fi
+    for int i = 0; i < n; i++ do
+      if !finite_f64(inputs[i]); do
+        return Err("nonfinite affine input");
+      fi
+      if !finite_f64((inputs[i] * weight) + bias); do
+        return Err("nonfinite affine output");
+      fi
+    done
+    for int i = 0; i < n; i++ do
+      outputs[i] = (inputs[i] * weight) + bias;
+    done
+    return Ok(true);
+  }
+
+  pub fnc mse_loss(
+    borrow List<float> predictions,
+    borrow List<float> targets
+  ): Result<float, String> {
+    val int n = predictions.size;
+    if n == 0; do
+      return Err("mse requires a nonempty batch");
+    fi
+    if targets.size != n; do
+      return Err("mse target length mismatch");
+    fi
+    let float total = 0.0;
+    for int i = 0; i < n; i++ do
+      if !finite_f64(predictions[i]) || !finite_f64(targets[i]); do
+        return Err("nonfinite mse input");
+      fi
+      val float difference = predictions[i] - targets[i];
+      total = total + (difference * difference);
+      if !finite_f64(total); do
+        return Err("nonfinite mse result");
+      fi
+    done
+    return Ok(total / Integer.toFloatExact(n));
+  }
+
+  // Reference gradient for one-dimensional affine + mean squared error.
+  // Generic reverse-mode integration is a separate P0 dependency on autograd.
+  pub fnc train_affine_step(
+    borrow List<float> inputs,
+    borrow List<float> targets,
+    borrow mut List<float> weights,
+    borrow mut List<float> biases,
+    float learning_rate
+  ): Result<float, String> {
+    val int n = inputs.size;
+    if n == 0; do
+      return Err("training batch must not be empty");
+    fi
+    if targets.size != n; do
+      return Err("training target length mismatch");
+    fi
+    if weights is biases || weights is inputs || weights is targets || biases is inputs || biases is targets; do
+      return Err("training parameter buffers must not alias inputs or each other");
+    fi
+    if weights.size != 1 || biases.size != 1; do
+      return Err("affine parameter vectors must each contain one scalar");
+    fi
+    if learning_rate <= 0.0; do
+      return Err("learning rate must be positive");
+    fi
+    if !finite_f64(learning_rate); do
+      return Err("learning rate must be finite");
+    fi
+
+    val float weight = weights[0];
+    val float bias = biases[0];
+    if !finite_f64(weight) || !finite_f64(bias); do
+      return Err("nonfinite training parameter");
+    fi
+    for int i = 0; i < n; i++ do
+      if !finite_f64(inputs[i]) || !finite_f64(targets[i]); do
+        return Err("nonfinite training value");
+      fi
+    done
+    let float loss = 0.0;
+    let float gradient_w = 0.0;
+    let float gradient_b = 0.0;
+    for int i = 0; i < n; i++ do
+      val float error = ((weight * inputs[i]) + bias) - targets[i];
+      loss = loss + (error * error);
+      gradient_w = gradient_w + (error * inputs[i]);
+      gradient_b = gradient_b + error;
+    done
+    val float batch_size = Integer.toFloatExact(n);
+    // Normalize the gradient before applying the rate. Scaling the rate
+    // first can overflow even when the gradient and the update are zero.
+    val float next_weight = weight - ((learning_rate * (gradient_w / batch_size)) * 2.0);
+    val float next_bias = bias - ((learning_rate * (gradient_b / batch_size)) * 2.0);
+    if !finite_f64(loss) || !finite_f64(next_weight) || !finite_f64(next_bias); do
+      return Err("nonfinite affine training result");
+    fi
+    weights[0] = next_weight;
+    biases[0] = next_bias;
+    return Ok(loss / batch_size);
+  }
+
+  // Simple parameter SGD for future generic model parameters.
+  pub fnc sgd_step_into(
+    borrow mut List<float> parameters,
+    borrow List<float> gradients,
+    float learning_rate
+  ): Result<bool, String> {
+    // A mutable parameter loan cannot also be read as its gradient source.
+    // Enforce identity until unique-borrow checking is accepted by all backends.
+    if parameters is gradients; do
+      return Err("sgd parameters and gradients must not alias");
+    fi
+    val int n = parameters.size;
+    if n == 0; do
+      return Err("sgd requires a nonempty parameter vector");
+    fi
+    if gradients.size != n; do
+      return Err("sgd gradient length mismatch");
+    fi
+    if learning_rate <= 0.0; do
+      return Err("sgd learning rate must be positive");
+    fi
+    if !finite_f64(learning_rate); do
+      return Err("sgd learning rate must be finite");
+    fi
+    for int i = 0; i < n; i++ do
+      if !finite_f64(parameters[i]) || !finite_f64(gradients[i]); do
+        return Err("nonfinite sgd input");
+      fi
+      if !finite_f64(parameters[i] - (learning_rate * gradients[i])); do
+        return Err("nonfinite sgd result");
+      fi
+    done
+    for int i = 0; i < n; i++ do
+      parameters[i] = parameters[i] - (learning_rate * gradients[i]);
+    done
+    return Ok(true);
+  }
+end

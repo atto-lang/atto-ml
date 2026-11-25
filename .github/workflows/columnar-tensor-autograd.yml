@@ -1,0 +1,30 @@
+name: Columnar tensor/autograd CPU oracle (host-only)
+on:
+  pull_request:
+    paths:
+      - "examples/train_columnar_tensor_autograd_cpu.ores"
+      - "tests/columnar_tensor_autograd_oracle.test.mjs"
+      - "tests/golden/columnar_tensor_autograd_cpu.stdout"
+      - "scripts/test-columnar-cpu-integration.sh"
+      - "docs/COLUMNAR_TENSOR_AUTOGRAD_CPU_MILESTONE.md"
+      - ".github/workflows/columnar-tensor-autograd.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Independent mathematical reference tests
+        run: node --test tests/columnar_tensor_autograd_oracle.test.mjs
+      - name: Verify syntax of future real guest acceptance script
+        run: sh -n scripts/test-columnar-cpu-integration.sh
+      - name: Pin evidence boundary
+        run: echo "HOST_ONLY; ORESLANG_GUEST_EXECUTION=NOT_EXECUTED; ML_ACTOR_PIPELINE=NOT_EXECUTED"
