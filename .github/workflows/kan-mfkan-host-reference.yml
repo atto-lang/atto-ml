@@ -10,6 +10,7 @@ on:
       - "tests/kan_multispan_reference.test.mjs"
       - "tests/kan_multispan_input_vjp.test.mjs"
       - "tests/kan_layer_packed_cpu.test.mjs"
+      - "tests/kan_layer_independent_deboor.test.mjs"
       - "examples/kan_layer_f64_smoke.ores"
       - "scripts/verify-kan-layer-guest.sh"
       - "docs/KAN_LAYER_CPU_PACKED_V1.md"
@@ -39,9 +40,9 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute bounded independent host numerical tests
-        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_layer_packed_cpu.test.mjs
+        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_layer_packed_cpu.test.mjs tests/kan_layer_independent_deboor.test.mjs
       - name: Verify host oracle parses
-        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs && node --check tests/kan_layer_packed_cpu.test.mjs
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs && node --check tests/kan_layer_packed_cpu.test.mjs && node --check tests/kan_layer_independent_deboor.test.mjs
       - name: Syntax-check pinned actual-guest verifier (does not execute guest)
         run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-layer-guest.sh
       - name: Mark evidence scope
