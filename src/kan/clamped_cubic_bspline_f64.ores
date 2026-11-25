@@ -1,280 +1,282 @@
-// Source-owned, bounded, clamped cubic B-spline with multiple knot spans.
-// CPU scalar acceptance candidate. Not a compiled Java/LLVM conformance claim.
-// Knot count must equal coefficient count + 4; degree is fixed at three.
-// First/last four knots are clamped to the endpoints; strictly interior knots
-// may repeat at most three times. Domain is closed [knots[3], knots[n]].
-// No implicit extrapolation, normalization, allocation, FFI or device calls.
-// Fixed 4-scalar de Boor workspace; all loops/knots/coefficients are bounded.
+define module ClampedCubicBSpline as
+  // Source-owned, bounded, clamped cubic B-spline with multiple knot spans.
+  // CPU scalar acceptance candidate. Not a compiled Java/LLVM conformance claim.
+  // Knot count must equal coefficient count + 4; degree is fixed at three.
+  // First/last four knots are clamped to the endpoints; strictly interior knots
+  // may repeat at most three times. Domain is closed [knots[3], knots[n]].
+  // No implicit extrapolation, normalization, allocation, FFI or device calls.
+  // Fixed 4-scalar de Boor workspace; all loops/knots/coefficients are bounded.
 
-fnc kan_multispan_bounded(float value): bool {
-    return value >= -1000000.0 && value <= 1000000.0;
-}
+  fnc kan_multispan_bounded(float value): bool {
+      return value >= -1000000.0 && value <= 1000000.0;
+  }
 
-// Fails before unbounded work: scan at most 257 coefficients / 261 knots.
-// The returned count is the number of spline coefficients.
-fnc kan_multispan_validate(
-    List<float> knots, List<float> coefficients
-): Result<int, String> {
-    let int n = 0;
-    for const value of coefficients do
-        n = n + 1;
-        if n > 256; do
-            return Err("KAN_TOO_MANY_COEFFICIENTS");
-        fi
-        if !kan_multispan_bounded(value); do
-            return Err("KAN_INVALID_COEFFICIENT");
-        fi
-    done
-    if n < 4; do
-        return Err("KAN_NEEDS_FOUR_COEFFICIENTS");
-    fi
+  // Fails before unbounded work: scan at most 257 coefficients / 261 knots.
+  // The returned count is the number of spline coefficients.
+  fnc kan_multispan_validate(
+      List<float> knots, List<float> coefficients
+  ): Result<int, String> {
+      let int n = 0;
+      for const value of coefficients do
+          n = n + 1;
+          if n > 256; do
+              return Err("KAN_TOO_MANY_COEFFICIENTS");
+          fi
+          if !kan_multispan_bounded(value); do
+              return Err("KAN_INVALID_COEFFICIENT");
+          fi
+      done
+      if n < 4; do
+          return Err("KAN_NEEDS_FOUR_COEFFICIENTS");
+      fi
 
-    let int count = 0;
-    for const knot of knots do
-        count = count + 1;
-        if count > 260; do
-            return Err("KAN_TOO_MANY_KNOTS");
-        fi
-        if !kan_multispan_bounded(knot); do
-            return Err("KAN_INVALID_KNOT");
-        fi
-    done
-    if count != n + 4; do
-        return Err("KAN_KNOT_COEFFICIENT_SHAPE");
-    fi
+      let int count = 0;
+      for const knot of knots do
+          count = count + 1;
+          if count > 260; do
+              return Err("KAN_TOO_MANY_KNOTS");
+          fi
+          if !kan_multispan_bounded(knot); do
+              return Err("KAN_INVALID_KNOT");
+          fi
+      done
+      if count != n + 4; do
+          return Err("KAN_KNOT_COEFFICIENT_SHAPE");
+      fi
 
-    val float left = knots[3];
-    val float right = knots[n];
-    if left >= right; do
-        return Err("KAN_EMPTY_DOMAIN");
-    fi
-    for int i = 0; i < 4; i++ do
-        if knots[i] != left || knots[n + i] != right; do
-            return Err("KAN_REQUIRES_CLAMPED_ENDPOINTS");
-        fi
-    done
-    let int repeated = 1;
-    for int i = 1; i < count; i++ do
-        if knots[i] < knots[i - 1]; do
-            return Err("KAN_UNSORTED_KNOTS");
-        fi
-        if knots[i] == knots[i - 1]; do
-            repeated = repeated + 1;
-        else
-            repeated = 1;
-        fi
-        // Endpoints intentionally have multiplicity four.
-        if i >= 4 && i < n && repeated >= 4; do
-            return Err("KAN_INTERIOR_MULTIPLICITY");
-        fi
-    done
-    for int i = 4; i < n; i++ do
-        if knots[i] <= left || knots[i] >= right; do
-            return Err("KAN_INTERIOR_KNOT_OUT_OF_DOMAIN");
-        fi
-    done
-    return Ok(n);
-}
+      val float left = knots[3];
+      val float right = knots[n];
+      if left >= right; do
+          return Err("KAN_EMPTY_DOMAIN");
+      fi
+      for int i = 0; i < 4; i++ do
+          if knots[i] != left || knots[n + i] != right; do
+              return Err("KAN_REQUIRES_CLAMPED_ENDPOINTS");
+          fi
+      done
+      let int repeated = 1;
+      for int i = 1; i < count; i++ do
+          if knots[i] < knots[i - 1]; do
+              return Err("KAN_UNSORTED_KNOTS");
+          fi
+          if knots[i] == knots[i - 1]; do
+              repeated = repeated + 1;
+          else
+              repeated = 1;
+          fi
+          // Endpoints intentionally have multiplicity four.
+          if i >= 4 && i < n && repeated >= 4; do
+              return Err("KAN_INTERIOR_MULTIPLICITY");
+          fi
+      done
+      for int i = 4; i < n; i++ do
+          if knots[i] <= left || knots[i] >= right; do
+              return Err("KAN_INTERIOR_KNOT_OUT_OF_DOMAIN");
+          fi
+      done
+      return Ok(n);
+  }
 
-fnc kan_multispan_find_span(float x, List<float> knots, int n): int {
-    // Right endpoint belongs to the final nonempty span.
-    for int i = 3; i < n; i++ do
-        if x >= knots[i] && x < knots[i + 1]; do
-            return i;
-        fi
-    done
-    return n - 1;
-}
+  fnc kan_multispan_find_span(float x, List<float> knots, int n): int {
+      // Right endpoint belongs to the final nonempty span.
+      for int i = 3; i < n; i++ do
+          if x >= knots[i] && x < knots[i + 1]; do
+              return i;
+          fi
+      done
+      return n - 1;
+  }
 
-// Trusted local cubic de Boor reduction over four controls.
-// Called only after the canonical knot and domain admission checks.
-// No heap-sized scratch; the four local values constitute the full workspace.
-fnc kan_multispan_span_f64(
-    float x, List<float> knots, int span,
-    float c0, float c1, float c2, float c3
-): Result<float, String> {
-    let float d0 = c0;
-    let float d1 = c1;
-    let float d2 = c2;
-    let float d3 = c3;
-    for int round = 1; round <= 3; round++ do
-        for int j = 3; j >= round; j-- do
-            val int i = span - 3 + j;
-            val float denominator = knots[i + 4 - round] - knots[i];
-            if denominator <= 0.0; do
-                return Err("KAN_DEGENERATE_SPAN");
-            fi
-            val float alpha = (x - knots[i]) / denominator;
-            if j == 3; do
-                d3 = ((1.0 - alpha) * d2) + (alpha * d3);
-            else
-                if j == 2; do
-                    d2 = ((1.0 - alpha) * d1) + (alpha * d2);
-                else
-                    d1 = ((1.0 - alpha) * d0) + (alpha * d1);
-                fi
-            fi
-        done
-    done
-    if !kan_multispan_bounded(d3); do
-        return Err("KAN_OUTPUT_OUT_OF_BOUNDS");
-    fi
-    return Ok(d3);
-}
+  // Trusted local cubic de Boor reduction over four controls.
+  // Called only after the canonical knot and domain admission checks.
+  // No heap-sized scratch; the four local values constitute the full workspace.
+  fnc kan_multispan_span_f64(
+      float x, List<float> knots, int span,
+      float c0, float c1, float c2, float c3
+  ): Result<float, String> {
+      let float d0 = c0;
+      let float d1 = c1;
+      let float d2 = c2;
+      let float d3 = c3;
+      for int round = 1; round <= 3; round++ do
+          for int j = 3; j >= round; j-- do
+              val int i = span - 3 + j;
+              val float denominator = knots[i + 4 - round] - knots[i];
+              if denominator <= 0.0; do
+                  return Err("KAN_DEGENERATE_SPAN");
+              fi
+              val float alpha = (x - knots[i]) / denominator;
+              if j == 3; do
+                  d3 = ((1.0 - alpha) * d2) + (alpha * d3);
+              else
+                  if j == 2; do
+                      d2 = ((1.0 - alpha) * d1) + (alpha * d2);
+                  else
+                      d1 = ((1.0 - alpha) * d0) + (alpha * d1);
+                  fi
+              fi
+          done
+      done
+      if !kan_multispan_bounded(d3); do
+          return Err("KAN_OUTPUT_OUT_OF_BOUNDS");
+      fi
+      return Ok(d3);
+  }
 
-pub fnc kan_clamped_cubic_f64(
-    float x, List<float> knots, List<float> coefficients
-): Result<float, String> {
-    val Result<int, String> validated =
-        kan_multispan_validate(knots, coefficients);
-    if validated.is_err(); do
-        return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
-    fi
-    val int n = validated.unwrap();
-    if !kan_multispan_bounded(x)
-        || x < knots[3] || x > knots[n]; do
-        return Err("KAN_OUTSIDE_SPLINE_DOMAIN");
-    fi
-    val int span = kan_multispan_find_span(x, knots, n);
-    return kan_multispan_span_f64(
-        x, knots, span,
-        coefficients[span - 3], coefficients[span - 2],
-        coefficients[span - 1], coefficients[span]
-    );
-}
+  pub fnc kan_clamped_cubic_f64(
+      float x, List<float> knots, List<float> coefficients
+  ): Result<float, String> {
+      val Result<int, String> validated =
+          kan_multispan_validate(knots, coefficients);
+      if validated.is_err(); do
+          return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
+      fi
+      val int n = validated.unwrap();
+      if !kan_multispan_bounded(x)
+          || x < knots[3] || x > knots[n]; do
+          return Err("KAN_OUTSIDE_SPLINE_DOMAIN");
+      fi
+      val int span = kan_multispan_find_span(x, knots, n);
+      return kan_multispan_span_f64(
+          x, knots, span,
+          coefficients[span - 3], coefficients[span - 2],
+          coefficients[span - 1], coefficients[span]
+      );
+  }
 
-// Analytic input derivative: the cubic derivative's degree-2 controls are
-// q[i] = 3*(c[i+1]-c[i])/(knots[i+4]-knots[i+1]).
-// The quadratic knot vector is the original vector with its end knots removed.
-pub fnc kan_clamped_cubic_dinput_f64(
-    float x, List<float> knots, List<float> coefficients
-): Result<float, String> {
-    val Result<int, String> validated =
-        kan_multispan_validate(knots, coefficients);
-    if validated.is_err(); do
-        return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
-    fi
-    val int n = validated.unwrap();
-    if !kan_multispan_bounded(x)
-        || x < knots[3] || x > knots[n]; do
-        return Err("KAN_OUTSIDE_SPLINE_DOMAIN");
-    fi
-    val int span = kan_multispan_find_span(x, knots, n);
-    let float q0 = 0.0;
-    let float q1 = 0.0;
-    let float q2 = 0.0;
-    for int j = 0; j < 3; j++ do
-        val int i = span - 3 + j;
-        val float denominator = knots[i + 4] - knots[i + 1];
-        if denominator <= 0.0; do
-            return Err("KAN_DEGENERATE_DERIVATIVE_SPAN");
-        fi
-        val float value = (3.0 * (coefficients[i + 1] - coefficients[i]))
-            / denominator;
-        if !kan_multispan_bounded(value); do
-            return Err("KAN_DERIVATIVE_OUT_OF_BOUNDS");
-        fi
-        if j == 0; do
-            q0 = value;
-        else
-            if j == 1; do
-                q1 = value;
-            else
-                q2 = value;
-            fi
-        fi
-    done
-    // Quadratic de Boor, using the trimmed knot vector at original t[i+1].
-    for int round = 1; round <= 2; round++ do
-        for int j = 2; j >= round; j-- do
-            val int i = span - 3 + j;
-            val float denominator = knots[i + 4 - round] - knots[i + 1];
-            if denominator <= 0.0; do
-                return Err("KAN_DEGENERATE_DERIVATIVE_SPAN");
-            fi
-            val float alpha = (x - knots[i + 1]) / denominator;
-            if j == 2; do
-                q2 = ((1.0 - alpha) * q1) + (alpha * q2);
-            else
-                q1 = ((1.0 - alpha) * q0) + (alpha * q1);
-            fi
-        done
-    done
-    if !kan_multispan_bounded(q2); do
-        return Err("KAN_DERIVATIVE_OUT_OF_BOUNDS");
-    fi
-    return Ok(q2);
-}
+  // Analytic input derivative: the cubic derivative's degree-2 controls are
+  // q[i] = 3*(c[i+1]-c[i])/(knots[i+4]-knots[i+1]).
+  // The quadratic knot vector is the original vector with its end knots removed.
+  pub fnc kan_clamped_cubic_dinput_f64(
+      float x, List<float> knots, List<float> coefficients
+  ): Result<float, String> {
+      val Result<int, String> validated =
+          kan_multispan_validate(knots, coefficients);
+      if validated.is_err(); do
+          return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
+      fi
+      val int n = validated.unwrap();
+      if !kan_multispan_bounded(x)
+          || x < knots[3] || x > knots[n]; do
+          return Err("KAN_OUTSIDE_SPLINE_DOMAIN");
+      fi
+      val int span = kan_multispan_find_span(x, knots, n);
+      let float q0 = 0.0;
+      let float q1 = 0.0;
+      let float q2 = 0.0;
+      for int j = 0; j < 3; j++ do
+          val int i = span - 3 + j;
+          val float denominator = knots[i + 4] - knots[i + 1];
+          if denominator <= 0.0; do
+              return Err("KAN_DEGENERATE_DERIVATIVE_SPAN");
+          fi
+          val float value = (3.0 * (coefficients[i + 1] - coefficients[i]))
+              / denominator;
+          if !kan_multispan_bounded(value); do
+              return Err("KAN_DERIVATIVE_OUT_OF_BOUNDS");
+          fi
+          if j == 0; do
+              q0 = value;
+          else
+              if j == 1; do
+                  q1 = value;
+              else
+                  q2 = value;
+              fi
+          fi
+      done
+      // Quadratic de Boor, using the trimmed knot vector at original t[i+1].
+      for int round = 1; round <= 2; round++ do
+          for int j = 2; j >= round; j-- do
+              val int i = span - 3 + j;
+              val float denominator = knots[i + 4 - round] - knots[i + 1];
+              if denominator <= 0.0; do
+                  return Err("KAN_DEGENERATE_DERIVATIVE_SPAN");
+              fi
+              val float alpha = (x - knots[i + 1]) / denominator;
+              if j == 2; do
+                  q2 = ((1.0 - alpha) * q1) + (alpha * q2);
+              else
+                  q1 = ((1.0 - alpha) * q0) + (alpha * q1);
+              fi
+          done
+      done
+      if !kan_multispan_bounded(q2); do
+          return Err("KAN_DERIVATIVE_OUT_OF_BOUNDS");
+      fi
+      return Ok(q2);
+  }
 
-// A checked input VJP lane. Both the local spline derivative and the
-// upstream adjoint are admitted before multiplication. The product MUST be
-// validated too: two separately bounded operands can exceed the gradient cap.
-// No mutation or optimizer-state publication happens on error.
-pub fnc kan_clamped_cubic_vjp_input_f64(
-    float x, List<float> knots, List<float> coefficients, float upstream
-): Result<float, String> {
-    if !kan_multispan_bounded(upstream); do
-        return Err("KAN_INVALID_INPUT_VJP_UPSTREAM");
-    fi
-    val Result<float, String> derivative =
-        kan_clamped_cubic_dinput_f64(x, knots, coefficients);
-    if derivative.is_err(); do
-        return Err("KAN_INVALID_INPUT_VJP_DERIVATIVE");
-    fi
-    val float gradient = upstream * derivative.unwrap();
-    if !kan_multispan_bounded(gradient); do
-        return Err("KAN_INPUT_VJP_OUT_OF_BOUNDS");
-    fi
-    return Ok(gradient);
-}
+  // A checked input VJP lane. Both the local spline derivative and the
+  // upstream adjoint are admitted before multiplication. The product MUST be
+  // validated too: two separately bounded operands can exceed the gradient cap.
+  // No mutation or optimizer-state publication happens on error.
+  pub fnc kan_clamped_cubic_vjp_input_f64(
+      float x, List<float> knots, List<float> coefficients, float upstream
+  ): Result<float, String> {
+      if !kan_multispan_bounded(upstream); do
+          return Err("KAN_INVALID_INPUT_VJP_UPSTREAM");
+      fi
+      val Result<float, String> derivative =
+          kan_clamped_cubic_dinput_f64(x, knots, coefficients);
+      if derivative.is_err(); do
+          return Err("KAN_INVALID_INPUT_VJP_DERIVATIVE");
+      fi
+      val float gradient = upstream * derivative.unwrap();
+      if !kan_multispan_bounded(gradient); do
+          return Err("KAN_INPUT_VJP_OUT_OF_BOUNDS");
+      fi
+      return Ok(gradient);
+  }
 
-// One analytic VJP coefficient lane. Only the four controls local to the
-// selected span can contribute; no coefficient array or gradient tape is
-// materialized. Caller must accumulate the per-edge/microbatch fan-in.
-pub fnc kan_clamped_cubic_dcoeff_f64(
-    float x, List<float> knots, List<float> coefficients,
-    int coefficient_index, float upstream
-): Result<float, String> {
-    val Result<int, String> validated =
-        kan_multispan_validate(knots, coefficients);
-    if validated.is_err(); do
-        return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
-    fi
-    val int n = validated.unwrap();
-    if coefficient_index < 0 || coefficient_index >= n
-        || !kan_multispan_bounded(x)
-        || x < knots[3] || x > knots[n]
-        || !kan_multispan_bounded(upstream); do
-        return Err("KAN_INVALID_VJP_REQUEST");
-    fi
-    val int span = kan_multispan_find_span(x, knots, n);
-    if coefficient_index < span - 3 || coefficient_index > span; do
-        return Ok(0.0);
-    fi
-    let float b0 = 0.0;
-    let float b1 = 0.0;
-    let float b2 = 0.0;
-    let float b3 = 0.0;
-    if coefficient_index == span - 3; do
-        b0 = 1.0;
-    fi
-    if coefficient_index == span - 2; do
-        b1 = 1.0;
-    fi
-    if coefficient_index == span - 1; do
-        b2 = 1.0;
-    fi
-    if coefficient_index == span; do
-        b3 = 1.0;
-    fi
-    val Result<float, String> basis =
-        kan_multispan_span_f64(x, knots, span, b0, b1, b2, b3);
-    if basis.is_err(); do
-        return Err("KAN_INVALID_VJP_BASIS");
-    fi
-    val float gradient = upstream * basis.unwrap();
-    if !kan_multispan_bounded(gradient); do
-        return Err("KAN_COEFFICIENT_GRADIENT_OUT_OF_BOUNDS");
-    fi
-    return Ok(gradient);
-}
+  // One analytic VJP coefficient lane. Only the four controls local to the
+  // selected span can contribute; no coefficient array or gradient tape is
+  // materialized. Caller must accumulate the per-edge/microbatch fan-in.
+  pub fnc kan_clamped_cubic_dcoeff_f64(
+      float x, List<float> knots, List<float> coefficients,
+      int coefficient_index, float upstream
+  ): Result<float, String> {
+      val Result<int, String> validated =
+          kan_multispan_validate(knots, coefficients);
+      if validated.is_err(); do
+          return Err("KAN_INVALID_SPLINE_DESCRIPTOR");
+      fi
+      val int n = validated.unwrap();
+      if coefficient_index < 0 || coefficient_index >= n
+          || !kan_multispan_bounded(x)
+          || x < knots[3] || x > knots[n]
+          || !kan_multispan_bounded(upstream); do
+          return Err("KAN_INVALID_VJP_REQUEST");
+      fi
+      val int span = kan_multispan_find_span(x, knots, n);
+      if coefficient_index < span - 3 || coefficient_index > span; do
+          return Ok(0.0);
+      fi
+      let float b0 = 0.0;
+      let float b1 = 0.0;
+      let float b2 = 0.0;
+      let float b3 = 0.0;
+      if coefficient_index == span - 3; do
+          b0 = 1.0;
+      fi
+      if coefficient_index == span - 2; do
+          b1 = 1.0;
+      fi
+      if coefficient_index == span - 1; do
+          b2 = 1.0;
+      fi
+      if coefficient_index == span; do
+          b3 = 1.0;
+      fi
+      val Result<float, String> basis =
+          kan_multispan_span_f64(x, knots, span, b0, b1, b2, b3);
+      if basis.is_err(); do
+          return Err("KAN_INVALID_VJP_BASIS");
+      fi
+      val float gradient = upstream * basis.unwrap();
+      if !kan_multispan_bounded(gradient); do
+          return Err("KAN_COEFFICIENT_GRADIENT_OUT_OF_BOUNDS");
+      fi
+      return Ok(gradient);
+  }
+end
