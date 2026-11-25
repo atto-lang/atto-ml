@@ -1,0 +1,99 @@
+// Pure Oreslang scalar reference operations for a LOCAL UNIFORM cubic B-spline
+// segment on t in [0,1]. Each edge owns four independent coefficients.
+// These are source-level candidate kernels, NOT verified guest compiler output.
+// Full multi-span knots, Tensor/Autograd ABI and trusted ModelGraph op linking
+// are separate milestones. No dynamic topology or implicit normalization.
+//
+// All inputs are explicitly checked to avoid silent clamping, NaN propagation,
+// or unbounded result generation. Coefficients are capped at +/-1e6.
+fnc kan_bounded_f64(float value): bool {
+    return value >= -1000000.0 && value <= 1000000.0;
+}
+
+fnc kan_unit_f64(float value): bool {
+    return value >= 0.0 && value <= 1.0;
+}
+
+pub fnc kan_cubic_segment_f64(
+    float t, float c0, float c1, float c2, float c3
+): Result<float, String> {
+    if !kan_unit_f64(t) || !kan_bounded_f64(c0)
+        || !kan_bounded_f64(c1) || !kan_bounded_f64(c2)
+        || !kan_bounded_f64(c3); do
+        return Err("KAN_INVALID_SEGMENT");
+    fi
+    val float u = 1.0 - t;
+    val float t2 = t * t;
+    val float b0 = (u * u * u) / 6.0;
+    val float b1 = ((3.0 * t2 * t) - (6.0 * t2) + 4.0) / 6.0;
+    val float b2 = ((-3.0 * t2 * t) + (3.0 * t2) + (3.0 * t) + 1.0) / 6.0;
+    val float b3 = (t2 * t) / 6.0;
+    val float output = (b0 * c0) + (b1 * c1) + (b2 * c2) + (b3 * c3);
+    if !kan_bounded_f64(output); do
+        return Err("KAN_OUTPUT_OUT_OF_BOUNDS");
+    fi
+    return Ok(output);
+}
+
+// Analytic derivative for VJP input-gradient accumulation.
+// The caller multiplies the result by its checked upstream scalar.
+pub fnc kan_cubic_segment_dinput_f64(
+    float t, float c0, float c1, float c2, float c3
+): Result<float, String> {
+    if !kan_unit_f64(t) || !kan_bounded_f64(c0)
+        || !kan_bounded_f64(c1) || !kan_bounded_f64(c2)
+        || !kan_bounded_f64(c3); do
+        return Err("KAN_INVALID_SEGMENT");
+    fi
+    val float u = 1.0 - t;
+    val float d0 = (0.0 - (u * u)) / 2.0;
+    val float d1 = ((9.0 * t * t) - (12.0 * t)) / 6.0;
+    val float d2 = ((-9.0 * t * t) + (6.0 * t) + 3.0) / 6.0;
+    val float d3 = (t * t) / 2.0;
+    val float gradient = (d0 * c0) + (d1 * c1) + (d2 * c2) + (d3 * c3);
+    if !kan_bounded_f64(gradient); do
+        return Err("KAN_DINPUT_OUT_OF_BOUNDS");
+    fi
+    return Ok(gradient);
+}
+
+// Derivative with respect to one of the four edge coefficients.
+// The caller multiplies this basis value by its checked upstream scalar.
+pub fnc kan_cubic_segment_dcoeff_f64(
+    float t, int index
+): Result<float, String> {
+    if !kan_unit_f64(t) || index < 0 || index > 3; do
+        return Err("KAN_INVALID_COEFFICIENT_INDEX");
+    fi
+    val float u = 1.0 - t;
+    val float t2 = t * t;
+    if index == 0; do
+        return Ok((u * u * u) / 6.0);
+    fi
+    if index == 1; do
+        return Ok(((3.0 * t2 * t) - (6.0 * t2) + 4.0) / 6.0);
+    fi
+    if index == 2; do
+        return Ok(((-3.0 * t2 * t) + (3.0 * t2) + (3.0 * t) + 1.0) / 6.0);
+    fi
+    return Ok((t2 * t) / 6.0);
+}
+
+// Multi-fidelity residual convention:
+// high = low + mix * linearCorrection + (1-mix) * nonlinearCorrection.
+// Caller MUST compute corrections from both x and the saved low prediction;
+// this helper is NOT a full multi-fidelity training/session implementation.
+pub fnc mfkan_residual_blend_f64(
+    float low, float linear_correction, float nonlinear_correction, float mix
+): Result<float, String> {
+    if !kan_bounded_f64(low) || !kan_bounded_f64(linear_correction)
+        || !kan_bounded_f64(nonlinear_correction) || !kan_unit_f64(mix); do
+        return Err("MFKAN_INVALID_CORRECTION");
+    fi
+    val float combined = low + (mix * linear_correction)
+        + ((1.0 - mix) * nonlinear_correction);
+    if !kan_bounded_f64(combined); do
+        return Err("MFKAN_OUTPUT_OUT_OF_BOUNDS");
+    fi
+    return Ok(combined);
+}
