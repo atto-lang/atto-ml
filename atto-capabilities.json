@@ -2,7 +2,7 @@
   "schema": "atto.repository-capabilities.v1",
   "repository": "atto-lang/atto-ml",
   "role": "library",
-  "source_state": "scaffold",
+  "source_state": "implementation",
   "feature_status": {
     "public_api": "not_executed",
     "guest_execution": "not_executed"
