@@ -1,0 +1,139 @@
+name: ML pinned compiler guest diagnosis
+on:
+  push:
+    branches: ['ci/ml-pinned-guest-diagnosis-20261125']
+permissions:
+  contents: read
+jobs:
+  guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [java, llvm]
+    steps:
+      - name: Checkout p0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: atto-lang/atto-ml
+          ref: dc632d5bbea81ac0118ba10b007d627c7f9b2e2b
+          path: p0
+          persist-credentials: false
+      - name: Verify p0 immutable tree
+        run: |
+          set -eu
+          test "$(git -C p0 rev-parse HEAD)" = dc632d5bbea81ac0118ba10b007d627c7f9b2e2b
+          test "$(git -C p0 rev-parse 'HEAD^{tree}')" = 57d6287bfcc99c058e9a6c861230756847852875
+          test -z "$(git -C p0 status --porcelain)"
+          echo 'p0 dc632d5bbea81ac0118ba10b007d627c7f9b2e2b 57d6287bfcc99c058e9a6c861230756847852875'
+      - name: Checkout kan
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: atto-lang/atto-ml
+          ref: bfcb0b2e0ff277f0acc1b5d197b10ab4f71ae402
+          path: kan
+          persist-credentials: false
+      - name: Verify kan immutable tree
+        run: |
+          set -eu
+          test "$(git -C kan rev-parse HEAD)" = bfcb0b2e0ff277f0acc1b5d197b10ab4f71ae402
+          test "$(git -C kan rev-parse 'HEAD^{tree}')" = 6d25684eb2d19028b9688ac58218d28ce1c29ccc
+          test -z "$(git -C kan status --porcelain)"
+          echo 'kan bfcb0b2e0ff277f0acc1b5d197b10ab4f71ae402 6d25684eb2d19028b9688ac58218d28ce1c29ccc'
+      - name: Checkout compiler
+        if: matrix.backend == 'java'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: atto-lang/atto-source.java
+          ref: b02efee4c036557278284ca444655e19cd0adc64
+          path: compiler
+          persist-credentials: false
+      - name: Verify compiler immutable tree
+        if: matrix.backend == 'java'
+        run: |
+          set -eu
+          test "$(git -C compiler rev-parse HEAD)" = b02efee4c036557278284ca444655e19cd0adc64
+          test "$(git -C compiler rev-parse 'HEAD^{tree}')" = 018f14281cb7af30c862c0dd25e1edc364148ca0
+          test -z "$(git -C compiler status --porcelain)"
+          echo 'compiler b02efee4c036557278284ca444655e19cd0adc64 018f14281cb7af30c862c0dd25e1edc364148ca0'
+      - name: Checkout compiler
+        if: matrix.backend == 'llvm'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: atto-lang/atto-source.llvm
+          ref: 8ed25fd2ab19a21d9ec3291d42109d48229751af
+          path: compiler
+          persist-credentials: false
+      - name: Verify compiler immutable tree
+        if: matrix.backend == 'llvm'
+        run: |
+          set -eu
+          test "$(git -C compiler rev-parse HEAD)" = 8ed25fd2ab19a21d9ec3291d42109d48229751af
+          test "$(git -C compiler rev-parse 'HEAD^{tree}')" = dd424d84058bdf78ba07ecdec5096a2e865e49c2
+          test -z "$(git -C compiler status --porcelain)"
+          echo 'compiler 8ed25fd2ab19a21d9ec3291d42109d48229751af dd424d84058bdf78ba07ecdec5096a2e865e49c2'
+      - name: GraalVM setup
+        if: matrix.backend == 'java'
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: graalvm
+      - name: Build Java native image
+        if: matrix.backend == 'java'
+        working-directory: compiler
+        run: |
+          set -eu
+          java -version
+          native-image --version
+          mvn -B -ntp -Pnative-aot -DskipTests package
+          test -x target/ores-aot
+          sha256sum target/ores-aot
+      - name: Install LLVM tools
+        if: matrix.backend == 'llvm'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang llvm-dev
+      - name: Build LLVM compiler and auditor
+        if: matrix.backend == 'llvm'
+        working-directory: compiler
+        run: |
+          set -eu
+          clang --version
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build --parallel 2 --target oreslang-llvmc oreslang-no-gc-ir-audit
+          sha256sum build/oreslang-llvmc build/oreslang-no-gc-ir-audit
+      - name: Execute exact source fixtures (not certification)
+        env:
+          BACKEND: ${{ matrix.backend }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=0
+          for item in 'p0|tests/smoke.ores|ORES_ML_TRAINING_SMOKE_PASS' 'kan|examples/kan_multispan_cubic_smoke.ores|ORES_KAN_MULTISPAN_PASS'; do
+            IFS='|' read -r root fixture marker <<< "$item"
+            tmp="$(mktemp -d)"
+            status=0
+            if [ "$BACKEND" = java ]; then
+              (cd "$root" && timeout 120s "$GITHUB_WORKSPACE/compiler/target/ores-aot" --mode=aot --platform=linux "$fixture") >"$tmp/out" 2>"$tmp/err" || status=$?
+            else
+              (cd compiler && timeout 120s bash scripts/compile-aot.sh "$GITHUB_WORKSPACE/$root/$fixture" "$tmp/guest") || status=$?
+              if [ "$status" = 0 ]; then
+                sha256sum "$tmp/guest"
+                timeout 120s "$tmp/guest" >"$tmp/out" 2>"$tmp/err" || status=$?
+              else
+                touch "$tmp/out" "$tmp/err"
+              fi
+            fi
+            printf '%s\n' "$marker" > "$tmp/expected"
+            printf 'FIXTURE=%s/%s BACKEND=%s EXIT=%s\n' "$root" "$fixture" "$BACKEND" "$status"
+            cat "$tmp/out" "$tmp/err"
+            if [ "$status" != 0 ] || [ -s "$tmp/err" ] || ! cmp -s "$tmp/expected" "$tmp/out"; then
+              echo 'GUEST_DIAGNOSTIC_FAILED'
+              result=1
+            else
+              echo 'GUEST_OUTPUT_MATCH (diagnostic only)'
+            fi
+            test -z "$(git -C "$root" status --porcelain)" || result=1
+            rm -rf "$tmp"
+          done
+          exit "$result"
