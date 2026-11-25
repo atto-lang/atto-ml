@@ -1,0 +1,37 @@
+name: Supervised CPU data tensor autograd (host-only)
+on:
+  pull_request:
+    paths:
+      - "examples/train_supervised_tensor_autograd.ores"
+      - "examples/two_stage_actor_vjp_bootstrap.ores"
+      - "tests/two_stage_actor_vjp_contract.test.mjs"
+      - "tests/supervised_tensor_autograd_contract.test.mjs"
+      - "tests/supervised_cpu_guest_guard.test.mjs"
+      - "scripts/verify-supervised-cpu-guest.sh"
+      - "docs/SUPERVISED_CPU_INTEGRATION_V1.md"
+      - ".github/workflows/supervised-cpu-host-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  independent-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Verify checked-out source revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Execute independent source and convergence oracle
+        run: node --test tests/supervised_tensor_autograd_contract.test.mjs tests/two_stage_actor_vjp_contract.test.mjs tests/supervised_cpu_guest_guard.test.mjs
+      - name: Validate future compiled guest verifier syntax
+        run: bash -n scripts/verify-supervised-cpu-guest.sh
+      - name: Preserve evidence boundaries
+        run: echo "HOST_ONLY; ORESLANG_GUEST_EXECUTION=NOT_EXECUTED; ACTOR_TRAINING=NOT_EXECUTED"

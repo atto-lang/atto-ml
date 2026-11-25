@@ -1,0 +1,141 @@
+// PROPOSED real-guest CPU integration target. Requires sibling repositories:
+// workspace/oreslang-ml, workspace/oreslang-data-science,
+// workspace/oreslang-tensor, workspace/oreslang-autograd.
+// No host-language ML numerical implementation and no actor-state bypass.
+// This is a synchronous reference trainer, NOT yet multi-actor execution.
+//
+// Native pipeline: nullable supervised columns -> original row IDs -> [N,1]
+// tensor matmul -> scalar reverse-mode tape -> SGD update. The same input and
+// version of parameters must produce matching tensor/tape forward predictions.
+import module Assert from "std/assert";
+import class FloatColumn from "../../oreslang-data-science/src/data/columnar";
+import class DenseSupervisedBatchF64 from "../../oreslang-data-science/src/pipeline/ml_batch_bridge";
+import fnc compact_supervised_f64_into, scatter_add_f64_into from "../../oreslang-data-science/src/pipeline/ml_batch_bridge";
+import class TensorF64 from "../../oreslang-tensor/src/tensor";
+import fnc matmul_2d_f64_into from "../../oreslang-tensor/src/tensor";
+import class TapeF64 from "../../oreslang-autograd/src/tape";
+import fnc forward_checked_into from "../../oreslang-autograd/src/forward_checked";
+import fnc backward_checked_into from "../../oreslang-autograd/src/backward_checked";
+
+pub routine main(): void {
+  // Source row 4 is an invalid training example: it must not influence
+  // loss, gradient, optimizer state, or source-row provenance.
+  val FloatColumn features = new FloatColumn(
+    "feature",
+    arr[0.0, 1.0, 2.0, 3.0, 1000.0],
+    arr[true, true, true, true, false]
+  );
+  val FloatColumn labels = new FloatColumn(
+    "target",
+    arr[1.0, 3.0, 5.0, 7.0, 2000.0],
+    arr[true, true, true, true, false]
+  );
+  val List<float> xs = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> ys = arr[0.0, 0.0, 0.0, 0.0];
+  val List<int> source_rows = arr[0, 0, 0, 0];
+  val Result<DenseSupervisedBatchF64, String> prepared =
+    compact_supervised_f64_into(features, labels, xs, ys, source_rows);
+  Assert.true_throws(prepared.is_ok());
+  val DenseSupervisedBatchF64 batch = prepared.unwrap();
+  Assert.equal_throws(batch.count, 4);
+  Assert.equal_throws(source_rows[0], 0);
+  Assert.equal_throws(source_rows[1], 1);
+  Assert.equal_throws(source_rows[2], 2);
+  Assert.equal_throws(source_rows[3], 3);
+  Assert.equal_throws(xs[3], 3.0);
+  Assert.equal_throws(ys[3], 7.0);
+
+  // Both output lists belong to this ordinary, synchronous routine.
+  // No mutable tensor buffer is sent to an actor or allowed to escape a loan.
+  val List<float> weight = arr[0.0];
+  val List<float> bias = arr[0.0];
+  val List<float> dense_prediction = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> per_sample_dw = arr[0.0, 0.0, 0.0, 0.0];
+  val List<float> source_dw = arr[0.0, 0.0, 0.0, 0.0, 0.0];
+  val List<float> scatter_scratch = arr[0.0, 0.0, 0.0, 0.0, 0.0];
+  val float learning_rate = 0.05;
+  let float final_loss = 0.0;
+
+  for int epoch = 0; epoch < 500; epoch++ do
+    // [4,1] @ [1,1]: tensor kernel must agree with tape's affine forward.
+    val TensorF64 input_matrix = new TensorF64(arr[4, 1], xs);
+    val TensorF64 weight_matrix = new TensorF64(arr[1, 1], weight);
+    Assert.true_throws(matmul_2d_f64_into(
+      input_matrix, weight_matrix, dense_prediction
+    ).is_ok());
+
+    let float batch_loss = 0.0;
+    let float grad_weight = 0.0;
+    let float grad_bias = 0.0;
+
+    for int i = 0; i < 4; i++ do
+      // Nodes 0=w, 1=x, 2=b, 3=-target, 4=w*x, 5=w*x+b,
+      // 6=prediction-target, 7=squared loss. This is genuine bounded
+      // reverse-mode autodiff; NO handwritten training gradients.
+      val TapeF64 tape = new TapeF64(
+        arr[0, 0, 0, 0, 2, 1, 1, 2],
+        arr[-1, -1, -1, -1, 0, 4, 5, 6],
+        arr[-1, -1, -1, -1, 1, 2, 3, 6],
+        arr[weight[0], xs[i], bias[0], 0.0 - ys[i], 0.0, 0.0, 0.0, 0.0]
+      );
+      val List<float> saved = arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      val List<float> fwd_scratch =
+        arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      val List<float> backwards =
+        arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+      val List<float> bwd_scratch =
+        arr[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+      Assert.true_throws(forward_checked_into(tape, fwd_scratch, saved).is_ok());
+      // Exact same scalar product and addition order in both kernels.
+      Assert.true_throws(saved[5] == dense_prediction[i] + bias[0]);
+      Assert.true_throws(backward_checked_into(
+        tape, saved, 7, 1.0, bwd_scratch, backwards
+      ).is_ok());
+
+      batch_loss = batch_loss + saved[7];
+      grad_weight = grad_weight + backwards[0];
+      grad_bias = grad_bias + backwards[2];
+      per_sample_dw[i] = backwards[0];
+    done
+
+    // Reverse row provenance: selected-row gradients map back to original
+    // source rows, leaving null-filtered row 4 untouched. The output is
+    // distinct from the data source and from the expendable scratch.
+    if epoch == 0; do
+      Assert.true_throws(scatter_add_f64_into(
+        per_sample_dw, source_rows, 4, source_dw, scatter_scratch
+      ).is_ok());
+      // Exact first-step reverse-mode gradients for w=0, b=0:
+      // grad_w = [0,-6,-20,-42]; the fifth, masked source row stays 0.
+      Assert.equal_throws(per_sample_dw[0], 0.0);
+      Assert.equal_throws(per_sample_dw[1], -6.0);
+      Assert.equal_throws(per_sample_dw[2], -20.0);
+      Assert.equal_throws(per_sample_dw[3], -42.0);
+      Assert.equal_throws(source_dw[0], 0.0);
+      Assert.equal_throws(source_dw[1], -6.0);
+      Assert.equal_throws(source_dw[2], -20.0);
+      Assert.equal_throws(source_dw[3], -42.0);
+      Assert.equal_throws(source_dw[4], 0.0);
+      Assert.equal_throws(batch_loss, 84.0);
+      Assert.equal_throws(grad_weight, -68.0);
+      Assert.equal_throws(grad_bias, -32.0);
+    fi
+
+    final_loss = batch_loss / 4.0;
+    val float next_weight = weight[0] - ((learning_rate / 4.0) * grad_weight);
+    val float next_bias = bias[0] - ((learning_rate / 4.0) * grad_bias);
+    Assert.true_throws((next_weight - next_weight) == 0.0);
+    Assert.true_throws((next_bias - next_bias) == 0.0);
+    // Synchronous reference publication only: actor versioned optimizer
+    // prepare/commit is a separate integration gate.
+    weight[0] = next_weight;
+    bias[0] = next_bias;
+  done
+
+  Assert.true_throws(final_loss < 0.000001);
+  Assert.true_throws(weight[0] > 1.99 && weight[0] < 2.01);
+  Assert.true_throws(bias[0] > 0.99 && bias[0] < 1.01);
+  stdio.println("ORES_ML_SUPERVISED_TENSOR_AUTOGRAD_PASS");
+  return;
+}
