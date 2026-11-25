@@ -1,4 +1,4 @@
-# KAN CPU native acceptance: source-local, exact-head, three-fixture gate
+# KAN CPU native acceptance: source-local, exact-head, four-fixture gate
 
 **Status: NOT_EXECUTED until a real pinned compiler and an authorized runner execute these fixtures.** Host mathematical tests, CI shell syntax and mock receipts must never be advertised as guest execution.
 
@@ -6,13 +6,13 @@
 
 [CI runner admission issue #20](https://github.com/ores-truffle-oreslang/oreslang-ml/issues/20) tracks Actions failures with `steps=null`, even for metadata-only jobs. This is a scheduler/infrastructure *symptom*; it does **not** establish exhausted minutes or any native numerical failure.
 
-Private source must remain in `ores-truffle-oreslang/oreslang-ml` (numeric GitHub repo ID `1423913534`) absent independent, exact destination authorization. The Java source-governance allowlist contains no approved destination. A copied Git tree in another organization, even through the GitHub connector without tokens, constitutes private-source transfer. GitHub Actions minutes do not grant authorization.
+The active AttoLang ML repository is public `atto-lang/atto-ml` (numeric GitHub repo ID `1448720923`). The archived legacy `ores-truffle-oreslang/oreslang-ml` and any private compiler/dependency source remain subject to independent exact-destination authorization; do not export them. The Java source-governance allowlist contains no approved destination. A copied Git tree in another organization, even through the GitHub connector without tokens, constitutes private-source transfer. GitHub Actions minutes do not grant authorization.
 
 ## Required reviewed inputs
 
 - A clean source checkout of the **reviewed exact PR head**. `EXPECTED_SOURCE_COMMIT` must be set from an independent trusted review record, not calculated from the untrusted worktree being tested.
 - A trusted native Oreslang compiler/executable at absolute `ORESLANG_BIN`. Its independent SHA-256 pin must be supplied via `ORESLANG_BIN_SHA256`; a digest selected by the PR author or the code under test is not an attestation.
-- Runner access to the three inherited native guest fixture scripts, their prechecked and pinned source/fixture Git blobs, and GNU-compatible `timeout`. The verifier requires an unchanged clean repository checkout.
+- Runner access to the four native guest fixture scripts, their prechecked and pinned source/fixture Git blobs, and GNU-compatible `timeout`. The verifier requires an unchanged clean repository checkout.
 - Java/GraalVM **and separately** LLVM toolchains must each run the same three-fixture matrix. Runner availability alone is not evidence of runtime parity.
 
 ## Source-local execution
@@ -31,9 +31,10 @@ The suite invokes, strictly in order:
 
 1. `verify-kan-multispan-guest.sh`: clamped cubic forward, gradients, rejection and right-hand knot semantics.
 2. `verify-kan-layer-guest.sh`: packed KAN layer forward, alias and failure-atomic publication.
-3. `verify-kan-layer-vjp-guest.sh`: packed input/parameter/bias VJP, aliases, inactive derivative span, negative cases and output atomicity.
+3. `verify-kan-layer-vjp-guest.sh`: packed input/parameter/bias VJP, forward preflight and atomicity.
+4. `verify-kan-layer-vjp-extended-guest.sh`: independent triple-knot, endpoint, read-only alias and inactive-span cases against the same canonical kernel.
 
-Each child must produce exactly one **byte-for-byte approved** receipt containing `GUEST=PASS`, the exact source and compiler pins, and the independently pinned kernel and fixture Git blob hashes and must independently validate its pinned kernel and fixture blobs, source HEAD, clean worktree, SHA256, stderr and actual guest stdout. Any failed child, unexpected stderr, missing/altered hash, additional field, malformed receipt or extra output line prevents the suite-level `KAN_CPU_SUITE=PASS; GUEST_FIXTURES=3` line.
+Each child must produce exactly one **byte-for-byte approved** receipt containing `GUEST=PASS`, the exact source and compiler pins, and the independently pinned kernel and fixture Git blob hashes and must independently validate its pinned kernel and fixture blobs, source HEAD, clean worktree, SHA256, stderr and actual guest stdout. Any failed child, unexpected stderr, missing/altered hash, additional field, malformed receipt or extra output line prevents the suite-level `KAN_CPU_SUITE=PASS; GUEST_FIXTURES=4` line.
 
 **Important:** The suite's receipt parser is not a compiler identity authority. `scripts/test-kan-native-suite-receipts.sh` uses synthetic child scripts and proves only parser behavior. `scripts/test-kan-guest-ci-identity.sh` validates CI environment rejection logic and likewise does not execute Oreslang.
 
@@ -42,7 +43,7 @@ Each child must produce exactly one **byte-for-byte approved** receipt containin
 - **Runner-admission failure:** `steps=null`; neither suite execution nor code failure.
 - **Host reference:** `node --test` completed with nonempty runner steps; proves only independently checked JavaScript arithmetic.
 - **Mock/verifier gate:** shell syntax and synthetic receipt checks; no compiler proof.
-- **Native guest accepted:** all three source- and compiler-pinned Oreslang guest fixtures run on an authorized runner, with exact stdout/stderr and real nonempty job steps; separately for Java/GraalVM and LLVM.
+- **Native guest accepted:** all four source- and compiler-pinned Oreslang guest fixtures run on an authorized runner, with exact stdout/stderr and real nonempty job steps; separately for Java/GraalVM and LLVM.
 - **Training accepted:** in addition to native execution, owned `NdArray` and actor-state version-fenced optimizer implementation + held-out nonlinear training tests pass. This milestone has not been reached.
 
 Keep [PR #19](https://github.com/ores-truffle-oreslang/oreslang-ml/pull/19) draft until actual native acceptance, and do not merge stacked dependent PRs on the basis of host-only tests.
@@ -60,6 +61,10 @@ The aggregate `scripts/verify-kan-native-cpu-suite.sh` now **independently** che
 
 These controls prevent a counterfeit child-script pass receipt from bypassing source/compiler preflight by supplying only a plausible-looking string. They do not establish the trustworthiness of a compiler if the expected hash itself was supplied by untrusted PR code; hashes and the runner must be approved through a separate trusted channel.
 
-The source-free `scripts/test-kan-native-suite-receipts.sh` now creates a temporary, **real committed Git repository**, uses an external executable containing only `exit 11` whose bytes are genuinely SHA-256 hashed, and stubs all three native verifiers to test the aggregator's failure and receipt logic. The dummy compiler is never executed as a guest compiler. **20/20 local test cases passed**; all mocked success cases remain **NATIVE_GUEST=NOT_EXECUTED**.
+The source-free `scripts/test-kan-native-suite-receipts.sh` now creates a temporary, **real committed Git repository**, uses an external executable containing only `exit 11` whose bytes are genuinely SHA-256 hashed, and stubs all four native verifiers to test the aggregator's failure and receipt logic. The dummy compiler is never executed as a guest compiler. **20/20 local test cases passed**; all mocked success cases remain **NATIVE_GUEST=NOT_EXECUTED**.
 
 Acceptance still requires a secure, source-authorized runner executing actual Java/GraalVM and LLVM compilers independently, with reviewed compiler hashes and source commits. No native pass is claimed.
+
+## AttoLang consolidation checkpoint
+
+PR #16 is stacked on PR #15 (head `b6af186f2429e36ba0a0026fe4b735fb3165fbb4`). The latter's bounded VJP is canonical because it validates the same bias and stagewise forward preflight as the forward layer before publishing any gradient. The competing six-scratch-only implementation omitted bias/forward admission; retain its history, not a second public VJP. Its distinct guest fixture was adapted to the canonical signature, with explicit zero biases and distinct probe buffers. The original independent numerical suite and runner diagnostics are retained. All four child receipt pins now name the same exact kernel, with distinct fixture pins. Source CI identity guards refer to the current Atto repository ID. This is a proposed integration, not evidence of actual guest execution.

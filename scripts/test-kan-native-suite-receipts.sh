@@ -8,19 +8,22 @@ trap 'rm -rf -- "$sandbox"' EXIT
 work="$sandbox/repo"
 mkdir -p "$work/scripts"
 cp "$root/scripts/verify-kan-native-cpu-suite.sh" "$work/scripts/"
-for name in verify-kan-multispan-guest.sh verify-kan-layer-guest.sh verify-kan-layer-vjp-guest.sh; do
+for name in verify-kan-multispan-guest.sh verify-kan-layer-guest.sh verify-kan-layer-vjp-guest.sh verify-kan-layer-vjp-extended-guest.sh; do
   cat > "$work/scripts/$name" <<'CHILD'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$(basename "$0")" in
   verify-kan-multispan-guest.sh)
-    suffix='GUEST_FIXTURE_BLOB=93732a26c708c1e06604c6b5d1127ed87fe3ba28; KAN_KERNEL_BLOB=322e344daf6c3474610cb04da05501cee99af70a'
+    suffix='GUEST_FIXTURE_BLOB=93732a26c708c1e06604c6b5d1127ed87fe3ba28; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b'
     ;;
   verify-kan-layer-guest.sh)
-    suffix='GUEST_FIXTURE_BLOB=3db364a880500c584083eb1c7eea7defea1c6a26; KAN_KERNEL_BLOB=322e344daf6c3474610cb04da05501cee99af70a'
+    suffix='GUEST_FIXTURE_BLOB=3db364a880500c584083eb1c7eea7defea1c6a26; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b'
     ;;
   verify-kan-layer-vjp-guest.sh)
-    suffix='KERNEL_BLOB=b3a36931e8fc1c3d5f4912b42bd4fcdcc2aab704; FIXTURE_BLOB=2e19be4571f0c77eb782867972708ae3a35f4656'
+    suffix='GUEST_FIXTURE_BLOB=d2089c9653deddc1652816dff46d549fd3460adc; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b'
+    ;;
+  verify-kan-layer-vjp-extended-guest.sh)
+    suffix='GUEST_FIXTURE_BLOB=baf209365c98c83ef8204868749f08e4bc69a0e2; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b'
     ;;
 esac
 receipt="GUEST=PASS; SOURCE_COMMIT=${EXPECTED_SOURCE_COMMIT}; COMPILER_SHA256=${ORESLANG_BIN_SHA256,,}; $suffix"
@@ -73,10 +76,10 @@ check 2 'absolute executable' EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256=
 check 2 'absolute executable' EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN=/mock
 check 2 'source HEAD differs' EXPECTED_SOURCE_COMMIT=0000000000000000000000000000000000000000 ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
 check 2 'compiler SHA256 differs' EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ORESLANG_BIN="$compiler"
-check 2 'CI source repository identity mismatch' GITHUB_ACTIONS=true GITHUB_REPOSITORY=other/private GITHUB_REPOSITORY_ID=1423913534 EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
+check 2 'CI source repository identity mismatch' GITHUB_ACTIONS=true GITHUB_REPOSITORY=other/private GITHUB_REPOSITORY_ID=1448720923 EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
 check 2 'unverifiable CI source repository context' CI=1 EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
-check 0 'KAN_CPU_SUITE=PASS; GUEST_FIXTURES=3' EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
-check 0 'KAN_CPU_SUITE=PASS; GUEST_FIXTURES=3' GITHUB_ACTIONS=true GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml GITHUB_REPOSITORY_ID=1423913534 EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
+check 0 'KAN_CPU_SUITE=PASS; GUEST_FIXTURES=4' EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
+check 0 'KAN_CPU_SUITE=PASS; GUEST_FIXTURES=4' GITHUB_ACTIONS=true GITHUB_REPOSITORY=atto-lang/atto-ml GITHUB_REPOSITORY_ID=1448720923 EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
 check 2 'KAN_CPU_SUITE=NOT_PASS' MOCK_MODE=fail EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"
 for mode in bad multi blank wrong_kernel wrong_fixture no_hashes trailing stderr; do
   check 1 'INVALID_RECEIPT' MOCK_MODE="$mode" EXPECTED_SOURCE_COMMIT="$sha" ORESLANG_BIN_SHA256="$digest" ORESLANG_BIN="$compiler"

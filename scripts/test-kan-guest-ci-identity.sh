@@ -19,24 +19,25 @@ check() {
 for script in \
   verify-kan-multispan-guest.sh \
   verify-kan-layer-guest.sh \
-  verify-kan-layer-vjp-guest.sh; do
+  verify-kan-layer-vjp-guest.sh \
+  verify-kan-layer-vjp-extended-guest.sh; do
   check 'CI source repository identity mismatch' "$script" \
-    GITHUB_ACTIONS=true GITHUB_REPOSITORY=other-org/private-ci GITHUB_REPOSITORY_ID=1423913534
+    GITHUB_ACTIONS=true GITHUB_REPOSITORY=other-org/private-ci GITHUB_REPOSITORY_ID=1448720923
   check 'CI source repository identity mismatch' "$script" \
-    GITHUB_ACTIONS=true GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml GITHUB_REPOSITORY_ID=99999
+    GITHUB_ACTIONS=true GITHUB_REPOSITORY=atto-lang/atto-ml GITHUB_REPOSITORY_ID=99999
   check 'CI source repository identity mismatch' "$script" \
-    GITHUB_ACTIONS=true GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml
+    GITHUB_ACTIONS=true GITHUB_REPOSITORY=atto-lang/atto-ml
   check 'unverifiable CI source repository context' "$script" \
     CI=true
   check 'unverifiable CI source repository context' "$script" \
-    GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml
+    GITHUB_REPOSITORY=atto-lang/atto-ml
   check 'unverifiable CI source repository context' "$script" \
     CI=1
   check 'unverifiable CI source repository context' "$script" \
     GITHUB_ACTIONS=false
   # Valid identity moves to the independent mandatory compiler preflight.
   check 'NOT_EXECUTED:' "$script" \
-    GITHUB_ACTIONS=true GITHUB_REPOSITORY=ores-truffle-oreslang/oreslang-ml GITHUB_REPOSITORY_ID=1423913534
+    GITHUB_ACTIONS=true GITHUB_REPOSITORY=atto-lang/atto-ml GITHUB_REPOSITORY_ID=1448720923
   check 'NOT_EXECUTED:' "$script"
 done
 printf 'CI_GUARD_HOST_ONLY=PASS; TESTS=%d; ORESLANG_GUEST=NOT_EXECUTED\n' "$pass"

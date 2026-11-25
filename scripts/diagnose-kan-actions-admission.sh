@@ -2,7 +2,7 @@
 # Read-only Actions admission evidence. Never schedules runners, edits billing,
 # modifies repository policy, or exports private source.
 set -euo pipefail
-repo="${1:-ores-truffle-oreslang/oreslang-ml}"
+repo="${1:-atto-lang/atto-ml}"
 run_id="${2:-}"
 if [[ ! "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ || ! "$run_id" =~ ^[1-9][0-9]*$ ]]; then
   echo 'USAGE: diagnose-kan-actions-admission.sh owner/repo numeric-run-id' >&2

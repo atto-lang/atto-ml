@@ -11,8 +11,8 @@ if [[ ! "${ORESLANG_BIN_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ]]; then
   echo 'NOT_EXECUTED: independently pinned compiler SHA256 required' >&2; exit 2
 fi
 if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
-  if [[ "${GITHUB_REPOSITORY:-}" != 'ores-truffle-oreslang/oreslang-ml' \
-      || "${GITHUB_REPOSITORY_ID:-}" != 1423913534 ]]; then
+  if [[ "${GITHUB_REPOSITORY:-}" != 'atto-lang/atto-ml' \
+      || "${GITHUB_REPOSITORY_ID:-}" != 1448720923 ]]; then
     echo 'NOT_EXECUTED: CI source repository identity mismatch' >&2; exit 2
   fi
 elif [[ -n "${GITHUB_ACTIONS:-}" || -n "${GITHUB_REPOSITORY:-}" \
@@ -52,16 +52,20 @@ count=0
 for script in \
   verify-kan-multispan-guest.sh \
   verify-kan-layer-guest.sh \
-  verify-kan-layer-vjp-guest.sh; do
+  verify-kan-layer-vjp-guest.sh \
+  verify-kan-layer-vjp-extended-guest.sh; do
   case "$script" in
     verify-kan-multispan-guest.sh)
-      receipt="$prefix GUEST_FIXTURE_BLOB=93732a26c708c1e06604c6b5d1127ed87fe3ba28; KAN_KERNEL_BLOB=322e344daf6c3474610cb04da05501cee99af70a"
+      receipt="$prefix GUEST_FIXTURE_BLOB=93732a26c708c1e06604c6b5d1127ed87fe3ba28; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b"
       ;;
     verify-kan-layer-guest.sh)
-      receipt="$prefix GUEST_FIXTURE_BLOB=3db364a880500c584083eb1c7eea7defea1c6a26; KAN_KERNEL_BLOB=322e344daf6c3474610cb04da05501cee99af70a"
+      receipt="$prefix GUEST_FIXTURE_BLOB=3db364a880500c584083eb1c7eea7defea1c6a26; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b"
       ;;
     verify-kan-layer-vjp-guest.sh)
-      receipt="$prefix KERNEL_BLOB=b3a36931e8fc1c3d5f4912b42bd4fcdcc2aab704; FIXTURE_BLOB=2e19be4571f0c77eb782867972708ae3a35f4656"
+      receipt="$prefix GUEST_FIXTURE_BLOB=d2089c9653deddc1652816dff46d549fd3460adc; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b"
+      ;;
+    verify-kan-layer-vjp-extended-guest.sh)
+      receipt="$prefix GUEST_FIXTURE_BLOB=baf209365c98c83ef8204868749f08e4bc69a0e2; KAN_KERNEL_BLOB=f49cc2ef36f808a18c5304c2a536497bb8d4759b"
       ;;
     *) echo 'KAN_CPU_SUITE=NOT_PASS; unexpected verifier' >&2; exit 2 ;;
   esac
@@ -81,7 +85,7 @@ for script in \
   printf 'COMPONENT=%s; %s\n' "$script" "$receipt"
   ((count += 1))
 done
-if [[ "$count" != 3 ]]; then
+if [[ "$count" != 4 ]]; then
   echo 'KAN_CPU_SUITE=NOT_PASS; missing required native fixture' >&2; exit 1
 fi
 printf 'KAN_CPU_SUITE=PASS; GUEST_FIXTURES=%d; SOURCE_COMMIT=%s; COMPILER_SHA256=%s\n' \

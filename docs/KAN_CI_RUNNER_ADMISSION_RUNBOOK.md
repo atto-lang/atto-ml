@@ -62,3 +62,7 @@ Additional observed raw GitHub REST job fields:
 The diagnostic now treats a pending/queued run as `RUN_NOT_COMPLETED`, not as evidence of failed admission; never interprets a truncated first page of job results as complete; and counts steps with `status=completed` rather than merely listed steps. It also preserves a real repository Actions policy `enabled=false` (previously lost when `jq //` substituted `UNKNOWN`) and reports listed rather than whole-organization self-hosted runner totals when pages may be incomplete. Mock coverage increased from 8 to **13/13 passing**; the full seven-suite host V8 math check is **67/67 passing**, independently of Actions. These counts do **not** establish native Java/Graal or LLVM compiler execution.
 
 At [PR #19](https://github.com/ores-truffle-oreslang/oreslang-ml/pull/19), the exact-head source-org no-checkout canary and the two host workflows continue to fail without any step execution. No private source has been copied to the review-only alternate organization; no destination has been approved by the source governance allowlist.
+
+## Active repository migration checkpoint
+
+For current AttoLang work, use `atto-lang/atto-ml` (repository ID `1448720923`); older run IDs and private repository references above are historical. Do not copy private dependencies or use cross-organization credentials. Public-source diagnostics do not establish private-export authority or native ML execution.

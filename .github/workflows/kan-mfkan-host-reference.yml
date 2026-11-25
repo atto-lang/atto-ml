@@ -12,7 +12,9 @@ on:
       - "tests/kan_layer_packed_cpu.test.mjs"
       - "tests/kan_layer_independent_deboor.test.mjs"
       - "tests/kan_layer_vjp_reference.test.mjs"
-      - "src/kan/packed_layer_vjp_f64.ores"
+      - "tests/kan_layer_vjp_cpu.test.mjs"
+      - "examples/kan_layer_vjp_f64_smoke.ores"
+      - "scripts/verify-kan-layer-vjp-extended-guest.sh"
       - "examples/kan_layer_vjp_smoke.ores"
       - "scripts/verify-kan-layer-vjp-guest.sh"
       - "scripts/test-kan-guest-ci-identity.sh"
@@ -51,11 +53,11 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute bounded independent host numerical tests
-        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_layer_packed_cpu.test.mjs tests/kan_layer_independent_deboor.test.mjs tests/kan_layer_vjp_reference.test.mjs
+        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs tests/kan_layer_packed_cpu.test.mjs tests/kan_layer_independent_deboor.test.mjs tests/kan_layer_vjp_reference.test.mjs tests/kan_layer_vjp_cpu.test.mjs
       - name: Verify host oracle parses
-        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs && node --check tests/kan_layer_packed_cpu.test.mjs && node --check tests/kan_layer_independent_deboor.test.mjs && node --check tests/kan_layer_vjp_reference.test.mjs
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs && node --check tests/kan_layer_packed_cpu.test.mjs && node --check tests/kan_layer_independent_deboor.test.mjs && node --check tests/kan_layer_vjp_reference.test.mjs && node --check tests/kan_layer_vjp_cpu.test.mjs
       - name: Syntax-check pinned actual-guest verifier (does not execute guest)
-        run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-layer-guest.sh && bash -n scripts/verify-kan-layer-vjp-guest.sh
+        run: bash -n scripts/verify-kan-multispan-guest.sh && bash -n scripts/verify-kan-layer-guest.sh && bash -n scripts/verify-kan-layer-vjp-guest.sh && bash -n scripts/verify-kan-layer-vjp-extended-guest.sh
       - name: Source-free guest verifier identity admission checks
         run: bash -n scripts/test-kan-guest-ci-identity.sh && bash scripts/test-kan-guest-ci-identity.sh
       - name: Mock-only native suite receipt parser tests

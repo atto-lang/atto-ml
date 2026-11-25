@@ -1,7 +1,7 @@
 // Candidate Oreslang guest fixture for the *uncompiled* packed KANLayer VJP.
 // Run only with an authorized, SHA-pinned Oreslang compiler after review.
 import module Assert from "std/assert";
-import fnc kan_layer_vjp_f64_into from "../src/kan/packed_layer_vjp_f64";
+import fnc kan_layer_vjp_f64_into from "../src/kan/clamped_cubic_bspline_f64";
 
 pub routine main(): void {
     val List<float> inputs = arr[0.25,0.75];
@@ -11,6 +11,12 @@ pub routine main(): void {
         0.4,0.4,0.4,0.4, 0.5,0.5,0.5,0.5
     ];
     val List<float> upstream = arr[1.0,2.0];
+    val List<float> biases = arr[0.0,0.0];
+    val List<float> probe_y = arr[0.0,0.0];
+    val List<float> probe_scratch = arr[0.0,0.0];
+    val List<float> scalar_bias = arr[0.0];
+    val List<float> scalar_probe_y = arr[0.0];
+    val List<float> scalar_probe_scratch = arr[0.0];
     val List<float> input_grad = arr[9.0,9.0];
     val List<float> coeff_grad = arr[
         9.0,9.0,9.0,9.0,9.0,9.0,9.0,9.0,
@@ -24,9 +30,9 @@ pub routine main(): void {
     ];
     val List<float> scratch_bias = arr[0.0,0.0];
     val Result<bool, String> ok = kan_layer_vjp_f64_into(
-        inputs,knots,coeff,upstream,2,2,4,
+        inputs,knots,coeff,biases,upstream,2,2,4,
         input_grad,coeff_grad,bias_grad,
-        scratch_input,scratch_coeff,scratch_bias
+        scratch_input,scratch_coeff,scratch_bias,probe_y,probe_scratch
     );
     Assert.true_throws(ok.is_ok());
     Assert.true_throws(input_grad[0] > -0.000001
@@ -50,9 +56,9 @@ pub routine main(): void {
     ];
     val List<float> large_upstream = arr[1000000.0,1000000.0];
     Assert.true_throws(kan_layer_vjp_f64_into(
-        inputs,knots,steep,large_upstream,2,2,4,
+        inputs,knots,steep,biases,large_upstream,2,2,4,
         input_grad,coeff_grad,bias_grad,
-        scratch_input,scratch_coeff,scratch_bias
+        scratch_input,scratch_coeff,scratch_bias,probe_y,probe_scratch
     ).is_err());
     Assert.true_throws(input_grad[0] > -0.000001
         && input_grad[0] < 0.000001);
@@ -70,9 +76,9 @@ pub routine main(): void {
         arr[0.0,0.0,0.0,0.0,0.0,0.0,0.0];
     val List<float> triple_bias_scratch = arr[0.0];
     Assert.true_throws(kan_layer_vjp_f64_into(
-        arr[0.5],triple_knots,triple_coeff,arr[2.0],1,1,7,
+        arr[0.5],triple_knots,triple_coeff,scalar_bias,arr[2.0],1,1,7,
         triple_grad,triple_coeff_grad,triple_bias_grad,
-        triple_scratch,triple_coeff_scratch,triple_bias_scratch
+        triple_scratch,triple_coeff_scratch,triple_bias_scratch,scalar_probe_y,scalar_probe_scratch
     ).is_ok());
     Assert.true_throws(triple_grad[0] > 5.999999
         && triple_grad[0] < 6.000001);
@@ -87,9 +93,9 @@ pub routine main(): void {
     val List<float> endpoint_scratch_coeff = arr[0.0,0.0,0.0,0.0];
     val List<float> endpoint_scratch_bias = arr[0.0];
     Assert.true_throws(kan_layer_vjp_f64_into(
-        arr[0.0],knots,linear_coeff,one_upstream,1,1,4,
+        arr[0.0],knots,linear_coeff,scalar_bias,one_upstream,1,1,4,
         endpoint_input_grad,endpoint_coeff_grad,endpoint_bias_grad,
-        endpoint_scratch_input,endpoint_scratch_coeff,endpoint_scratch_bias
+        endpoint_scratch_input,endpoint_scratch_coeff,endpoint_scratch_bias,scalar_probe_y,scalar_probe_scratch
     ).is_ok());
     Assert.true_throws(endpoint_input_grad[0] > 5.999999
         && endpoint_input_grad[0] < 6.000001);
@@ -98,9 +104,9 @@ pub routine main(): void {
     Assert.true_throws(endpoint_coeff_grad[2] == 0.0);
     Assert.true_throws(endpoint_coeff_grad[3] == 0.0);
     Assert.true_throws(kan_layer_vjp_f64_into(
-        arr[1.0],knots,linear_coeff,one_upstream,1,1,4,
+        arr[1.0],knots,linear_coeff,scalar_bias,one_upstream,1,1,4,
         endpoint_input_grad,endpoint_coeff_grad,endpoint_bias_grad,
-        endpoint_scratch_input,endpoint_scratch_coeff,endpoint_scratch_bias
+        endpoint_scratch_input,endpoint_scratch_coeff,endpoint_scratch_bias,scalar_probe_y,scalar_probe_scratch
     ).is_ok());
     Assert.true_throws(endpoint_input_grad[0] > 5.999999
         && endpoint_input_grad[0] < 6.000001);
@@ -121,9 +127,9 @@ pub routine main(): void {
     val List<float> shared_sc = arr[0.0,0.0,0.0,0.0];
     val List<float> shared_sb = arr[0.0];
     Assert.true_throws(kan_layer_vjp_f64_into(
-        shared_read,knots,shared_coeff,shared_read,1,1,4,
+        shared_read,knots,shared_coeff,scalar_bias,shared_read,1,1,4,
         shared_input_grad,shared_coeff_grad,shared_bias_grad,
-        shared_si,shared_sc,shared_sb
+        shared_si,shared_sc,shared_sb,scalar_probe_y,scalar_probe_scratch
     ).is_ok());
     Assert.true_throws(shared_input_grad[0] > 0.374999
         && shared_input_grad[0] < 0.375001);
@@ -145,13 +151,13 @@ pub routine main(): void {
     val List<float> distant_sc = arr[0.0,0.0,0.0,0.0,0.0,0.0];
     val List<float> distant_sb = arr[0.0];
     Assert.true_throws(kan_layer_vjp_f64_into(
-        distant_input,tiny_knots,distant_coeff,distant_upstream,1,1,6,
+        distant_input,tiny_knots,distant_coeff,scalar_bias,distant_upstream,1,1,6,
         distant_grad,distant_coeff_grad,distant_bias_grad,
-        distant_si,distant_sc,distant_sb
+        distant_si,distant_sc,distant_sb,scalar_probe_y,scalar_probe_scratch
     ).is_ok());
     Assert.true_throws(distant_grad[0] == 0.0);
     Assert.true_throws(distant_bias_grad[0] == 0.5);
 
-    stdio.println("ORES_KAN_LAYER_VJP_PASS");
+    stdio.println("ORES_KAN_LAYER_VJP_EXTENDED_PASS");
     return;
 }
