@@ -67,3 +67,7 @@ actual pinned Java/GraalVM + LLVM guest execution succeed.
 
 No automatic merge/release, branch protection bypass, or cross-organization
 private source export is authorized.
+
+## AttoLang integration checkpoint
+
+The preceding historical account describes the original legacy reconciliation, not the current AttoLang tree. AttoLang PR #21 now incorporates current main `e143a7b5711238c97e015c6c5b632e09612b5a4f`, retaining its README, license, capability inventory, tests and all governance files. The 24 P0 paths are carried forward from AttoLang head `4be7e3244bcbbc83c6a7362e0ff01ca2902f16c0`; this branch includes migration-era edits, so it must not be treated as byte-identical to legacy PR #29 or current AttoLang PR #20. Compare their overlapping source and tests before treating them as superseded. The current repository is public; no private dependency or compiler source was exported. Native guest release gates remain unchanged and unexecuted.
