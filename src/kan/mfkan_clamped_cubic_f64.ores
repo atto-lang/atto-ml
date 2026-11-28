@@ -1,0 +1,175 @@
+// Source-owned, scalar multi-span MFKAN composition over clamped cubic KAN edges.
+// Candidate Oreslang guest implementation; no compiler execution claim.
+// high(x) = low(x) + mix * (wx*x + wl*low(x) + bias)
+//           + (1-mix) * (featureKAN(x) + predictionKAN(low(x))).
+// The low prediction must belong to the prediction KAN's declared knot domain.
+// No implicit clipping, normalizing, graph lowering, actor state or training.
+//
+// Distinct nominal model/parameter/run identities are future ModelGraph gates.
+// These pure functions do not retain or publish parameter/activation state.
+import fnc kan_clamped_cubic_f64, kan_clamped_cubic_dinput_f64,
+           kan_clamped_cubic_dcoeff_f64
+    from "./clamped_cubic_bspline_f64";
+
+fnc mfkan_multispan_bounded(float x): bool {
+    return x >= -1000000.0 && x <= 1000000.0;
+}
+
+fnc mfkan_multispan_mix(float mix): bool {
+    return mix >= 0.0 && mix <= 1.0;
+}
+
+// All three knot/parameter vectors are independently validated by the
+// source-owned cubic evaluator. No aliasing or mutation occurs.
+pub fnc mfkan_clamped_cubic_high_f64(
+    float x,
+    List<float> low_knots, List<float> low_coefficients,
+    List<float> feature_knots, List<float> feature_coefficients,
+    List<float> prediction_knots, List<float> prediction_coefficients,
+    float feature_weight, float low_weight, float linear_bias, float mix
+): Result<float, String> {
+    if !mfkan_multispan_bounded(x)
+        || !mfkan_multispan_bounded(feature_weight)
+        || !mfkan_multispan_bounded(low_weight)
+        || !mfkan_multispan_bounded(linear_bias)
+        || !mfkan_multispan_mix(mix); do
+        return Err("MFKAN_INVALID_CONFIGURATION");
+    fi
+    val Result<float, String> low_result =
+        kan_clamped_cubic_f64(x, low_knots, low_coefficients);
+    if low_result.is_err(); do
+        return Err("MFKAN_INVALID_LOW_STAGE");
+    fi
+    val float low = low_result.unwrap();
+    val Result<float, String> feature_result =
+        kan_clamped_cubic_f64(x, feature_knots, feature_coefficients);
+    if feature_result.is_err(); do
+        return Err("MFKAN_INVALID_FEATURE_BRANCH");
+    fi
+    val Result<float, String> prediction_result =
+        kan_clamped_cubic_f64(low, prediction_knots, prediction_coefficients);
+    if prediction_result.is_err(); do
+        return Err("MFKAN_INVALID_PREDICTION_BRANCH");
+    fi
+    val float linear = (feature_weight * x)
+        + (low_weight * low) + linear_bias;
+    val float nonlinear = feature_result.unwrap() + prediction_result.unwrap();
+    if !mfkan_multispan_bounded(linear)
+        || !mfkan_multispan_bounded(nonlinear); do
+        return Err("MFKAN_CORRECTION_OUT_OF_BOUNDS");
+    fi
+    val float high = low + (mix * linear)
+        + ((1.0 - mix) * nonlinear);
+    if !mfkan_multispan_bounded(high); do
+        return Err("MFKAN_HIGH_OUT_OF_BOUNDS");
+    fi
+    return Ok(high);
+}
+
+// Input VJP of the *high* output, including both uses of low(x).
+// Caller owns the upstream cotangent and chooses parameter-version fences.
+pub fnc mfkan_clamped_cubic_dinput_f64(
+    float x,
+    List<float> low_knots, List<float> low_coefficients,
+    List<float> feature_knots, List<float> feature_coefficients,
+    List<float> prediction_knots, List<float> prediction_coefficients,
+    float feature_weight, float low_weight, float linear_bias, float mix,
+    float upstream
+): Result<float, String> {
+    if !mfkan_multispan_bounded(upstream); do
+        return Err("MFKAN_INVALID_UPSTREAM");
+    fi
+    val Result<float, String> high = mfkan_clamped_cubic_high_f64(
+        x, low_knots, low_coefficients,
+        feature_knots, feature_coefficients,
+        prediction_knots, prediction_coefficients,
+        feature_weight, low_weight, linear_bias, mix
+    );
+    if high.is_err(); do
+        return Err("MFKAN_INVALID_FORWARD");
+    fi
+    val Result<float, String> low_result =
+        kan_clamped_cubic_f64(x, low_knots, low_coefficients);
+    if low_result.is_err(); do
+        return Err("MFKAN_INVALID_LOW_STAGE");
+    fi
+    val float low = low_result.unwrap();
+    val Result<float, String> low_dx =
+        kan_clamped_cubic_dinput_f64(x, low_knots, low_coefficients);
+    val Result<float, String> feature_dx =
+        kan_clamped_cubic_dinput_f64(x, feature_knots, feature_coefficients);
+    val Result<float, String> prediction_dlow =
+        kan_clamped_cubic_dinput_f64(
+            low, prediction_knots, prediction_coefficients
+        );
+    if low_dx.is_err() || feature_dx.is_err() || prediction_dlow.is_err(); do
+        return Err("MFKAN_INVALID_DERIVATIVE");
+    fi
+    val float low_adjoint = 1.0 + (mix * low_weight)
+        + ((1.0 - mix) * prediction_dlow.unwrap());
+    val float input_grad = upstream * (
+        (low_adjoint * low_dx.unwrap())
+        + (mix * feature_weight)
+        + ((1.0 - mix) * feature_dx.unwrap())
+    );
+    if !mfkan_multispan_bounded(low_adjoint)
+        || !mfkan_multispan_bounded(input_grad); do
+        return Err("MFKAN_INPUT_GRADIENT_OUT_OF_BOUNDS");
+    fi
+    return Ok(input_grad);
+}
+
+// Low-stage coefficient VJP: freeze affects PARAMETER updates only, not
+// high-output or input-gradient semantics. Validate the requested lane before
+// returning a frozen zero; never let a frozen flag bypass bounds/shape checks.
+pub fnc mfkan_clamped_cubic_low_dcoeff_f64(
+    float x,
+    List<float> low_knots, List<float> low_coefficients,
+    List<float> feature_knots, List<float> feature_coefficients,
+    List<float> prediction_knots, List<float> prediction_coefficients,
+    float feature_weight, float low_weight, float linear_bias, float mix,
+    int coefficient_index, float upstream, bool freeze_low
+): Result<float, String> {
+    if !mfkan_multispan_bounded(upstream); do
+        return Err("MFKAN_INVALID_UPSTREAM");
+    fi
+    val Result<float, String> high = mfkan_clamped_cubic_high_f64(
+        x, low_knots, low_coefficients,
+        feature_knots, feature_coefficients,
+        prediction_knots, prediction_coefficients,
+        feature_weight, low_weight, linear_bias, mix
+    );
+    if high.is_err(); do
+        return Err("MFKAN_INVALID_FORWARD");
+    fi
+    val Result<float, String> coeff_lane =
+        kan_clamped_cubic_dcoeff_f64(
+            x, low_knots, low_coefficients, coefficient_index, upstream
+        );
+    if coeff_lane.is_err(); do
+        return Err("MFKAN_INVALID_COEFFICIENT_LANE");
+    fi
+    if freeze_low; do
+        return Ok(0.0);
+    fi
+    val Result<float, String> low_result =
+        kan_clamped_cubic_f64(x, low_knots, low_coefficients);
+    if low_result.is_err(); do
+        return Err("MFKAN_INVALID_LOW_STAGE");
+    fi
+    val Result<float, String> prediction_dlow =
+        kan_clamped_cubic_dinput_f64(
+            low_result.unwrap(), prediction_knots, prediction_coefficients
+        );
+    if prediction_dlow.is_err(); do
+        return Err("MFKAN_INVALID_PREDICTION_DERIVATIVE");
+    fi
+    val float low_adjoint = 1.0 + (mix * low_weight)
+        + ((1.0 - mix) * prediction_dlow.unwrap());
+    val float gradient = low_adjoint * coeff_lane.unwrap();
+    if !mfkan_multispan_bounded(low_adjoint)
+        || !mfkan_multispan_bounded(gradient); do
+        return Err("MFKAN_LOW_COEFFICIENT_GRADIENT_OUT_OF_BOUNDS");
+    fi
+    return Ok(gradient);
+}
