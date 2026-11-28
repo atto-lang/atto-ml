@@ -1,0 +1,57 @@
+name: Proposed scalar actor ML state contract (host-only)
+on:
+  pull_request:
+    paths:
+      - "examples/train_actor_state_scalar.ores"
+      - "examples/train_actor_two_layer_autograd.ores"
+      - "docs/ACTOR_TWO_LAYER_AUTOGRAD_STATE_GATE.md"
+      - "examples/typed_scalar_step_result.ores"
+      - "src/training/scalar_checked_result.ores"
+      - "tests/scalar_checked_result_contract.test.mjs"
+      - "scripts/verify-typed-scalar-guest.sh"
+      - "examples/train_nullable_data_with_autograd.ores"
+      - "examples/train_nullable_two_layer_autograd.ores"
+      - "tests/nullable_two_layer_autograd_contract.test.mjs"
+      - "tests/two_layer_runner_provenance_contract.test.mjs"
+      - "scripts/verify-two-layer-tensor-guest.sh"
+      - "tests/nullable_data_autograd_contract.test.mjs"
+      - "tests/guest_runner_provenance_contract.test.mjs"
+      - "scripts/verify-data-autograd-guest.sh"
+      - "tests/actor_state_scalar_contract.test.mjs"
+      - "tests/actor_two_layer_autograd_state_contract.test.mjs"
+      - "scripts/verify-actor-two-layer-guest.sh"
+      - "tests/training_error_nominal_contract.test.mjs"
+      - "tests/actor_state_typed_transaction_contract.test.mjs"
+      - "tests/actor_state_bounded_numeric_contract.test.mjs"
+      - "tests/actor_state_negative_manifest.test.mjs"
+      - "tests/fixtures/actor-state-ml-negatives/**"
+      - "docs/ACTOR_STATE_ML_NEGATIVE_GATES.md"
+      - "tests/golden/actor_state_scalar.stdout"
+      - "scripts/verify-actor-state-guest.sh"
+      - "docs/ACTOR_STATE_TRAINING_MILESTONE.md"
+      - ".github/workflows/actor-state-ml-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Verify exact source revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Run source spelling and scalar numerical reference cases
+        run: node --test tests/actor_two_layer_autograd_state_contract.test.mjs tests/actor_state_scalar_contract.test.mjs tests/training_error_nominal_contract.test.mjs tests/actor_state_typed_transaction_contract.test.mjs tests/scalar_checked_result_contract.test.mjs tests/actor_state_bounded_numeric_contract.test.mjs tests/actor_state_negative_manifest.test.mjs tests/nullable_data_autograd_contract.test.mjs tests/guest_runner_provenance_contract.test.mjs tests/nullable_two_layer_autograd_contract.test.mjs tests/two_layer_runner_provenance_contract.test.mjs
+      - name: Syntax check future compiled-guest validator
+        run: bash -n scripts/verify-actor-two-layer-guest.sh && bash -n scripts/verify-actor-state-guest.sh && bash -n scripts/verify-typed-scalar-guest.sh && bash -n scripts/verify-data-autograd-guest.sh && bash -n scripts/verify-two-layer-tensor-guest.sh
+      - name: Clearly identify evidence boundary
+        run: echo "HOST_ONLY; ORESLANG_GUEST_EXECUTION=NOT_EXECUTED; STATE_LOCK_INTEGRATION=NOT_EXECUTED"

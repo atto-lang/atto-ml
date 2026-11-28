@@ -1,0 +1,43 @@
+{
+  "contract": "oreslang.ml.actor-state.compiler-negative.v1",
+  "status": "PROPOSED",
+  "guest_execution": "NOT_EXECUTED",
+  "cases": [
+    {
+      "fixture": "actor_ml_raw_field_reject.ores",
+      "expected": "reject",
+      "diagnostic_class": "ACTOR_PERSISTENT_FIELD_FORBIDDEN",
+      "guest_execution": "NOT_EXECUTED"
+    },
+    {
+      "fixture": "actor_ml_state_escape_reject.ores",
+      "expected": "reject",
+      "diagnostic_class": "ACTOR_STATE_LOAN_ESCAPE",
+      "guest_execution": "NOT_EXECUTED"
+    },
+    {
+      "fixture": "actor_ml_read_mutation_reject.ores",
+      "expected": "reject",
+      "diagnostic_class": "ACTOR_STATE_READONLY_WRITE",
+      "guest_execution": "NOT_EXECUTED"
+    },
+    {
+      "fixture": "actor_ml_missing_effect_reject.ores",
+      "expected": "reject",
+      "diagnostic_class": "ACTOR_EFFECT_EXCEEDS_WITH",
+      "guest_execution": "NOT_EXECUTED"
+    },
+    {
+      "fixture": "actor_ml_write_missing_critical_reject.ores",
+      "expected": "reject",
+      "diagnostic_class": "ACTOR_STATE_WRITE_NEEDS_CRITICAL",
+      "guest_execution": "NOT_EXECUTED"
+    },
+    {
+      "fixture": "actor_ml_await_loan_reject.ores",
+      "expected": "reject",
+      "diagnostic_class": "ACTOR_STATE_LOAN_SUSPEND",
+      "guest_execution": "NOT_EXECUTED"
+    }
+  ]
+}

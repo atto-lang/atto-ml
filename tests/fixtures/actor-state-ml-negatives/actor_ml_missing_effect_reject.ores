@@ -1,0 +1,9 @@
+define actor BadActor as
+    state { weight: int = 1; }
+    private bad(): int with state.read {
+        return using state.write(critical |s| -> {
+            s.weight = 2;
+            return 2;
+        });
+    }
+end

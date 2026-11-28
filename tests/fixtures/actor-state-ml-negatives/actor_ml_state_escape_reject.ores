@@ -1,0 +1,6 @@
+define actor BadActor as
+    state { weight: int = 1; }
+    private bad(): int with state.read {
+        return using state.read(|s| -> s);
+    }
+end
