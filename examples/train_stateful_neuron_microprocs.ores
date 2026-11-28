@@ -1,0 +1,227 @@
+// Proposed pure-Oreslang two-neuron micro-process training gate.
+// Each neuron is a long-lived actor with sealed state, and each forward/
+// backward operation is a typed mailbox turn. Main routes packets; this is
+// NOT direct neuron-to-neuron transport, durable restart, or production auth.
+// Not compiled at an exact compiler SHA; current sealed-state Java grammar
+// integration and callback return contract remain blocked.
+//
+// Packet kinds: 0=one-time initialize, 1=forward, 2=backward, 3=close,
+// 4=forward reply, 5=upstream-gradient reply, 9=reject, 10=initialized.
+// In production use nominal enum variants + runtime-attested capabilities.
+import module Assert from 'std/assert';
+
+define pub class NeuronPacket as
+  pub val int kind;
+  pub val int step;
+  pub val int weight_version;
+  pub val float value;
+end
+
+define enum NeuronError as
+  UNINITIALIZED = 1
+  ALREADY_INITIALIZED = 2
+  STALE_STEP = 3
+  STALE_VERSION = 4
+  DUPLICATE_FORWARD = 5
+  MISSING_FORWARD = 6
+  INVALID_NUMERIC = 7
+end
+
+fnc finite_f64(float x): bool {
+  return (x - x) == 0.0;
+}
+
+define actor StatefulNeuron as
+  state {
+    initialized: bool = false;
+    weight: float = 1.0;
+    weight_version: int = 0;
+    completed_step: int = 0;
+    pending_step: int = 0;
+    saved_input: float = 0.0;
+    has_forward: bool = false;
+  }
+
+  // A one-time unprivileged demo init. Production initialization MUST be a
+  // trusted supervisor CONTROL command, never a caller-selected packet.
+  private initialize(NeuronPacket packet): Result<float, NeuronError>
+    with state.write
+  {
+    return self.handle_state(critical write |s| -> {
+      if s.initialized; do
+        return Err(NeuronError.ALREADY_INITIALIZED());
+      fi
+      if packet.step != 0 || packet.weight_version != 0 ||
+         !finite_f64(packet.value); do
+        return Err(NeuronError.INVALID_NUMERIC());
+      fi
+      s.weight = packet.value;
+      s.initialized = true;
+      s.weight_version = 1;
+      return Ok(s.weight);
+    });
+  }
+
+  // This is a scalar demonstration: short arithmetic can happen within the
+  // exclusive loan. Production tensor kernels must run from frozen snapshots
+  // outside loans, then CAS-publish at a version barrier.
+  private forward(NeuronPacket packet): Result<float, NeuronError>
+    with state.write
+  {
+    return self.handle_state(critical write |s| -> {
+      if !s.initialized; do
+        return Err(NeuronError.UNINITIALIZED());
+      fi
+      if packet.weight_version != s.weight_version; do
+        return Err(NeuronError.STALE_VERSION());
+      fi
+      if packet.step != s.completed_step + 1; do
+        return Err(NeuronError.STALE_STEP());
+      fi
+      if s.has_forward; do
+        return Err(NeuronError.DUPLICATE_FORWARD());
+      fi
+      val float candidate = s.weight * packet.value;
+      if !finite_f64(packet.value) || !finite_f64(candidate); do
+        return Err(NeuronError.INVALID_NUMERIC());
+      fi
+      s.saved_input = packet.value;
+      s.pending_step = packet.step;
+      s.has_forward = true;
+      return Ok(candidate);
+    });
+  }
+
+  private backward(NeuronPacket packet): Result<float, NeuronError>
+    with state.write
+  {
+    return self.handle_state(critical write |s| -> {
+      if !s.initialized; do
+        return Err(NeuronError.UNINITIALIZED());
+      fi
+      if packet.weight_version != s.weight_version; do
+        return Err(NeuronError.STALE_VERSION());
+      fi
+      if !s.has_forward || packet.step != s.pending_step; do
+        return Err(NeuronError.MISSING_FORWARD());
+      fi
+      // dInput = upstream * OLD weight, dWeight = upstream * saved input.
+      val float upstream_input = packet.value * s.weight;
+      val float gradient_weight = packet.value * s.saved_input;
+      val float candidate_weight = s.weight - 0.1 * gradient_weight;
+      if !finite_f64(packet.value) || !finite_f64(upstream_input) ||
+         !finite_f64(gradient_weight) || !finite_f64(candidate_weight); do
+        return Err(NeuronError.INVALID_NUMERIC());
+      fi
+      // A single isolated actor turn publishes one weight and its version.
+      // Multi-parameter model commits require an external optimizer barrier.
+      s.weight = candidate_weight;
+      s.completed_step = s.pending_step;
+      s.weight_version = s.weight_version + 1;
+      s.has_forward = false;
+      return Ok(upstream_input);
+    });
+  }
+
+  receive(ActorMail<NeuronPacket> mail): void with state.write {
+    val NeuronPacket p = mail.value;
+    if p.kind == 0; do
+      val Result<float, NeuronError> initialized = self.initialize(p);
+      if initialized.is_ok(); do
+        self.send(new NeuronPacket(10,0,1,initialized.unwrap()));
+      else
+        self.send(new NeuronPacket(9,p.step,p.weight_version,0.0));
+      fi
+      return;
+    fi
+    if p.kind == 1; do
+      val Result<float, NeuronError> activated = self.forward(p);
+      if activated.is_ok(); do
+        self.send(new NeuronPacket(4,p.step,p.weight_version,activated.unwrap()));
+      else
+        self.send(new NeuronPacket(9,p.step,p.weight_version,0.0));
+      fi
+      return;
+    fi
+    if p.kind == 2; do
+      val Result<float, NeuronError> backprop = self.backward(p);
+      if backprop.is_ok(); do
+        self.send(new NeuronPacket(5,p.step,p.weight_version + 1,backprop.unwrap()));
+      else
+        self.send(new NeuronPacket(9,p.step,p.weight_version,0.0));
+      fi
+      return;
+    fi
+    if p.kind == 3; do
+      self.end();
+      return;
+    fi
+    self.send(new NeuronPacket(9,p.step,p.weight_version,0.0));
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val hidden = spawn StatefulNeuron();
+  val output = spawn StatefulNeuron();
+  await hidden.get_ready();
+  await output.get_ready();
+
+  // Layer 1 starts with w=2 and layer 2 with w=1.
+  hidden.send(new NeuronPacket(0,0,0,2.0));
+  output.send(new NeuronPacket(0,0,0,1.0));
+  val init_h = (await hidden.outputs.next()).value.unwrap();
+  val init_o = (await output.outputs.next()).value.unwrap();
+  Assert.true_throws(init_h.value.kind == 10 && init_o.value.kind == 10);
+
+  // First pass: X=1 -> 2 -> 2 while target=4.
+  hidden.send(new NeuronPacket(1,1,1,1.0));
+  val a = (await hidden.outputs.next()).value.unwrap();
+  Assert.true_throws(a.value.kind == 4);
+  // Duplicate forward cannot replace this neuron's saved activation.
+  hidden.send(new NeuronPacket(1,1,1,1.0));
+  val duplicate = (await hidden.outputs.next()).value.unwrap();
+  Assert.true_throws(duplicate.value.kind == 9);
+  output.send(new NeuronPacket(1,1,1,a.value.value));
+  val b = (await output.outputs.next()).value.unwrap();
+  Assert.true_throws(b.value.kind == 4);
+  val float first_error = b.value.value - 4.0;
+  val float first_loss = first_error * first_error;
+
+  // Backpropagation flows reverse to the forward edges. Each neuron uses its
+  // OWN saved input and old weight, never an untrusted gradient attribution.
+  output.send(new NeuronPacket(2,1,1,2.0*first_error));
+  val db = (await output.outputs.next()).value.unwrap();
+  Assert.true_throws(db.value.kind == 5 && db.value.weight_version == 2);
+  hidden.send(new NeuronPacket(2,1,1,db.value.value));
+  val da = (await hidden.outputs.next()).value.unwrap();
+  Assert.true_throws(da.value.kind == 5 && da.value.weight_version == 2);
+  // Version 1 can no longer apply a gradient after the step-1 publication.
+  output.send(new NeuronPacket(2,1,1,2.0*first_error));
+  val stale = (await output.outputs.next()).value.unwrap();
+  Assert.true_throws(stale.value.kind == 9);
+
+  // Same actor instances persist into the next step. New weights yield
+  // (2.4 * 1.8)=4.32; loss 0.1024, versus the initial loss 4.
+  hidden.send(new NeuronPacket(1,2,2,1.0));
+  val a2 = (await hidden.outputs.next()).value.unwrap();
+  output.send(new NeuronPacket(1,2,2,a2.value.value));
+  val b2 = (await output.outputs.next()).value.unwrap();
+  Assert.true_throws(a2.value.kind == 4 && b2.value.kind == 4);
+  val float last_error = b2.value.value - 4.0;
+  val float last_loss = last_error * last_error;
+  Assert.true_throws(first_loss == 4.0 && last_loss < first_loss);
+  Assert.true_throws(last_loss > 0.10 && last_loss < 0.11);
+
+  output.send(new NeuronPacket(2,2,2,2.0*last_error));
+  val db2 = (await output.outputs.next()).value.unwrap();
+  hidden.send(new NeuronPacket(2,2,2,db2.value.value));
+  val da2 = (await hidden.outputs.next()).value.unwrap();
+  Assert.true_throws(db2.value.kind == 5 && da2.value.kind == 5);
+
+  hidden.send(new NeuronPacket(3,3,3,0.0));
+  output.send(new NeuronPacket(3,3,3,0.0));
+  await hidden.get_done();
+  await output.get_done();
+  stdio.println("ORES_ML_STATEFUL_NEURON_BACKPROP_PASS");
+}
