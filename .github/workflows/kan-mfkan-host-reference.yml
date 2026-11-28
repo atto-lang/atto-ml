@@ -7,6 +7,12 @@ on:
       - "reference/kan_mfkan_reference.mjs"
       - "tests/kan_mfkan_reference.test.mjs"
       - "tests/kan_mfkan_independent_deboor.test.mjs"
+      - "tests/kan_multispan_reference.test.mjs"
+      - "tests/kan_multispan_input_vjp.test.mjs"
+      - "src/kan/clamped_cubic_bspline_f64.ores"
+      - "examples/kan_multispan_cubic_smoke.ores"
+      - "scripts/verify-kan-multispan-guest.sh"
+      - "docs/KAN_MULTISPAN_CLAMPED_CUBIC_V1.md"
       - "docs/KAN_MFKAN_CPU_REFERENCE_V1.md"
       - ".github/workflows/kan-mfkan-host-reference.yml"
   workflow_dispatch:
@@ -17,11 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
       - name: Verify exact requested Git revision
@@ -29,8 +35,10 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Execute bounded independent host numerical tests
-        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs
+        run: node --test tests/kan_mfkan_reference.test.mjs tests/kan_mfkan_independent_deboor.test.mjs tests/kan_multispan_reference.test.mjs tests/kan_multispan_input_vjp.test.mjs
       - name: Verify host oracle parses
-        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs
+        run: node --check reference/kan_mfkan_reference.mjs && node --check tests/kan_mfkan_reference.test.mjs && node --check tests/kan_mfkan_independent_deboor.test.mjs && node --check tests/kan_multispan_reference.test.mjs && node --check tests/kan_multispan_input_vjp.test.mjs
+      - name: Syntax-check pinned actual-guest verifier (does not execute guest)
+        run: bash -n scripts/verify-kan-multispan-guest.sh
       - name: Mark evidence scope
-        run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"
+        run: echo "HOST_REFERENCE_ONLY; ORESLANG_GUEST=NOT_EXECUTED; MULTISPAN_NATIVE=NOT_EXECUTED; GRAPH_DAG=NOT_IMPLEMENTED; NATIVE_TRAINING=NOT_EXECUTED"

@@ -1,0 +1,71 @@
+// Proposed real compiled Oreslang CPU guest smoke. Not host-only math.
+// Acceptance target: stdout exactly ORES_KAN_MULTISPAN_PASS, stderr empty.
+// Execute on pinned Java/Graal and LLVM guest compilers; no runner pass yet.
+import module Assert from "std/assert";
+import module ClampedCubicBSpline from "../src/kan/clamped_cubic_bspline_f64.ores";
+
+pub routine main(): void {
+    val List<float> knots = arr[0.0,0.0,0.0,0.0,0.5,1.0,1.0,1.0,1.0];
+    val List<float> coeff = arr[0.0,0.25,0.5,0.75,1.0];
+
+    val Result<float, String> left = ClampedCubicBSpline.kan_clamped_cubic_f64(0.0,rt borrow knots,rt borrow coeff);
+    val Result<float, String> middle = ClampedCubicBSpline.kan_clamped_cubic_f64(0.5,rt borrow knots,rt borrow coeff);
+    val Result<float, String> right = ClampedCubicBSpline.kan_clamped_cubic_f64(1.0,rt borrow knots,rt borrow coeff);
+    Assert.true_throws(left.is_ok() && middle.is_ok() && right.is_ok());
+    Assert.true_throws(left.unwrap() > -0.000001 && left.unwrap() < 0.000001);
+    Assert.true_throws(middle.unwrap() > 0.499999 && middle.unwrap() < 0.500001);
+    Assert.true_throws(right.unwrap() > 0.999999 && right.unwrap() < 1.000001);
+
+    val Result<float, String> dinput =
+        ClampedCubicBSpline.kan_clamped_cubic_dinput_f64(0.5,rt borrow knots,rt borrow coeff);
+    val Result<float, String> dlast =
+        ClampedCubicBSpline.kan_clamped_cubic_dcoeff_f64(1.0,rt borrow knots,rt borrow coeff,4,1.0);
+    val Result<float, String> dinactive =
+        ClampedCubicBSpline.kan_clamped_cubic_dcoeff_f64(0.0,rt borrow knots,rt borrow coeff,4,1.0);
+    Assert.true_throws(dinput.is_ok() && dlast.is_ok() && dinactive.is_ok());
+    Assert.true_throws(dinput.unwrap() > 0.749999 && dinput.unwrap() < 0.750001);
+    Assert.true_throws(dlast.unwrap() > 0.999999 && dlast.unwrap() < 1.000001);
+    Assert.true_throws(dinactive.unwrap() == 0.0);
+
+    // The upstream adjoint is multiplied inside a checked native Oreslang
+    // operation, not by an unchecked caller-side float expression.
+    val Result<float, String> input_vjp =
+        ClampedCubicBSpline.kan_clamped_cubic_vjp_input_f64(0.5,rt borrow knots,rt borrow coeff,2.0);
+    Assert.true_throws(input_vjp.is_ok());
+    Assert.true_throws(input_vjp.unwrap() > 1.499999
+        && input_vjp.unwrap() < 1.500001);
+    val List<float> steep = arr[0.0,1.0,2.0,3.0,4.0];
+    Assert.true_throws(
+        ClampedCubicBSpline.kan_clamped_cubic_vjp_input_f64(0.5,rt borrow knots,rt borrow steep,1000000.0).is_err()
+    );
+    Assert.true_throws(
+        ClampedCubicBSpline.kan_clamped_cubic_vjp_input_f64(0.5,rt borrow knots,rt borrow coeff,1000001.0).is_err()
+    );
+
+    // Triple interior knot: x==0.5 selects the right-hand derivative, even
+    // when the left derivative is different (0.6 vs 3.0 in this fixture).
+    val List<float> triple_knots =
+        arr[0.0,0.0,0.0,0.0,0.5,0.5,0.5,1.0,1.0,1.0,1.0];
+    val List<float> triple_coeff =
+        arr[0.0,0.1,0.2,0.3,0.8,0.5,0.6];
+    val Result<float, String> right_hand =
+        ClampedCubicBSpline.kan_clamped_cubic_dinput_f64(0.5,rt borrow triple_knots,rt borrow triple_coeff);
+    Assert.true_throws(right_hand.is_ok());
+    Assert.true_throws(right_hand.unwrap() > 2.999999
+        && right_hand.unwrap() < 3.000001);
+
+    // Validation must fail closed rather than silently clipping/reordering.
+    Assert.true_throws(ClampedCubicBSpline.kan_clamped_cubic_f64(-0.001,rt borrow knots,rt borrow coeff).is_err());
+    Assert.true_throws(ClampedCubicBSpline.kan_clamped_cubic_f64(1.001,rt borrow knots,rt borrow coeff).is_err());
+    val List<float> malformed = arr[0.0,0.0,0.0,0.0,0.5,1.0,1.0,1.0];
+    Assert.true_throws(ClampedCubicBSpline.kan_clamped_cubic_f64(0.5,rt borrow malformed,rt borrow coeff).is_err());
+    val List<float> duplicate_interiors =
+        arr[0.0,0.0,0.0,0.0,0.5,0.5,0.5,0.5,1.0,1.0,1.0,1.0];
+    val List<float> eight_coefficients =
+        arr[0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7];
+    Assert.true_throws(
+        ClampedCubicBSpline.kan_clamped_cubic_f64(0.5,rt borrow duplicate_interiors,rt borrow eight_coefficients).is_err()
+    );
+    stdio.println("ORES_KAN_MULTISPAN_PASS");
+    return;
+}
